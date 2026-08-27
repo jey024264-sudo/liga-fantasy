@@ -465,7 +465,7 @@ def repartir_premios_liga():
 # ============================================================
 
 def preparar_copa():
-    if st.session_state.copa:
+    if st.session_state.get('copa'):
         return
 
     if st.session_state.jornada_actual <= TOTAL_JORNADAS:
@@ -492,9 +492,9 @@ def preparar_copa():
 
 def jugar_semifinales_copa():
     preparar_copa()
-    if not st.session_state.copa:
+    if not st.session_state.get('copa'):
         return
-    if st.session_state.copa_semis_jugadas:
+    if st.session_state.get('copa_semis_jugadas', False):
         return
 
     nombres = st.session_state.copa["equipos"]
@@ -521,9 +521,9 @@ def jugar_semifinales_copa():
 
 
 def jugar_final_copa():
-    if not st.session_state.copa_semis_jugadas:
+    if not st.session_state.get('copa_semis_jugadas', False):
         return
-    if st.session_state.copa_final_jugada:
+    if st.session_state.get('copa_final_jugada', False):
         return
 
     ganadores = [
@@ -641,7 +641,7 @@ def jugar_semifinales_mundial():
     crear_mundial()
     if not st.session_state.mundial:
         return
-    if st.session_state.mundial_semis_jugadas:
+    if st.session_state.get('mundial_semis_jugadas', False):
         return
 
     campeon = buscar_equipo(st.session_state.mundial["campeon_espana"])
@@ -672,9 +672,9 @@ def jugar_semifinales_mundial():
 
 
 def jugar_final_mundial():
-    if not st.session_state.mundial_semis_jugadas:
+    if not st.session_state.get('mundial_semis_jugadas', False):
         return
-    if st.session_state.mundial_final_jugada:
+    if st.session_state.get('mundial_final_jugada', False):
         return
 
     ganadores = [
@@ -743,7 +743,7 @@ def ejecutar_ia():
                     "Estratega": 1.00,
                     "Jóvenes": 0.95,
                     "Equilibrado": 1.00,
-                }.get(bot.estilo_ia, 1.0)
+                }.get(getattr(bot, 'estilo_ia', 'Equilibrado'), 1.0)
 
                 if (
                     jugador.grl >= bot.calcular_media_equipo()
@@ -788,7 +788,7 @@ def ejecutar_bots_subasta():
             "Estratega": 1.15,
             "Jóvenes": 1.05,
             "Equilibrado": 1.20,
-        }.get(bot.estilo_ia, 1.20)
+        }.get(getattr(bot, 'estilo_ia', 'Equilibrado'), 1.20)
 
         if bot.presupuesto > st.session_state.puja_max + 2_000_000:
             if random.random() < 0.45:
@@ -997,7 +997,7 @@ def inicializar_nueva_partida():
 
     clubes = []
     for id_c, nombre, emoji in clubes_info:
-        es_humano = id_c == 1
+        es_humano = False
         eq = Equipo(
             id_c,
             nombre,
@@ -1060,6 +1060,35 @@ def inicializar_nueva_partida():
 # INICIALIZACIÓN
 # ============================================================
 
+# ============================================================
+# AUTOCORRECCIÓN / MIGRACIÓN BETA 3.0
+# ============================================================
+def reparar_estado_beta3():
+    defaults = {
+        "copa": None, "mundial": None, "campeon_copa": None,
+        "equipos_mundial": [], "historial_resultados": [],
+        "historial_copas": [], "historial_mundial": [],
+        "historial_finanzas": [], "noticias": [], "premios_liga": [],
+        "premios_liga_repartidos": False, "copa_semis_jugadas": False,
+        "copa_final_jugada": False, "mundial_semis_jugadas": False,
+        "mundial_final_jugada": False, "ofertas_fichaje": [],
+        "mercado_pool": [], "subasta_idx": 0, "puja_max": 0,
+        "lider_puja_eq": None, "subasta_activa": False,
+        "hora_fin_subasta": None,
+    }
+    for key, value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = value.copy() if isinstance(value, list) else value
+    for eq in st.session_state.get("equipos", []):
+        if not hasattr(eq, "es_humano"):
+            eq.es_humano = False
+        if not hasattr(eq, "estilo_ia"):
+            eq.estilo_ia = random.choice(ESTILOS_IA)
+        if not hasattr(eq, "password"):
+            eq.password = str(eq.id_club)
+        if not hasattr(eq, "pais"):
+            eq.pais = "España"
+
 if "liga_inicializada" not in st.session_state:
     if not cargar_partida():
         inicializar_nueva_partida()
@@ -1102,8 +1131,9 @@ if "mi_equipo" not in st.session_state and not st.session_state.es_solo_admin:
             idx = opciones.index(eq_login_nombre)
             eq_obj = st.session_state.equipos[idx]
 
-            if pwd_login.strip() == str(eq_obj.password):
-                eq_obj.es_humano = True
+            if not eq_obj.es_humano:
+                st.error("🔒 Este club está controlado por la IA. El Administrador Supremo debe marcarlo como HUMANO.")
+            elif pwd_login.strip() == str(eq_obj.password):
                 if nombre_presi_input.strip():
                     eq_obj.presidente = nombre_presi_input.strip()
                 autosave_partida()
@@ -1644,7 +1674,7 @@ elif menu == "🏆 Competiciones":
 
             st.markdown("---")
 
-            if not st.session_state.copa_semis_jugadas:
+            if not st.session_state.get('copa_semis_jugadas', False):
                 if st.button("🔥 Jugar Semifinales de Copa", type="primary"):
                     jugar_semifinales_copa()
                     autosave_partida()
@@ -1657,7 +1687,7 @@ elif menu == "🏆 Competiciones":
 
                 st.markdown("---")
 
-                if not st.session_state.copa_final_jugada:
+                if not st.session_state.get('copa_final_jugada', False):
                     if st.button("🏆 Jugar Final de Copa", type="primary"):
                         jugar_final_copa()
                         autosave_partida()
@@ -1695,12 +1725,12 @@ elif menu == "🏆 Competiciones":
                 st.write(
                     f"{eq.emoji} **{eq.nombre}** — {eq.pais} · "
                     f"⭐ {eq.calcular_media_equipo()} · "
-                    f"IA: {eq.estilo_ia}"
+                    f"IA: {getattr(eq, 'estilo_ia', 'Equilibrado')}"
                 )
 
             st.markdown("---")
 
-            if not st.session_state.mundial_semis_jugadas:
+            if not st.session_state.get('mundial_semis_jugadas', False):
                 if st.button("🔥 Jugar Semifinales del Mundial", type="primary"):
                     jugar_semifinales_mundial()
                     autosave_partida()
@@ -1713,7 +1743,7 @@ elif menu == "🏆 Competiciones":
 
                 st.markdown("---")
 
-                if not st.session_state.mundial_final_jugada:
+                if not st.session_state.get('mundial_final_jugada', False):
                     if st.button("🏆 Jugar Final del Mundial", type="primary"):
                         jugar_final_mundial()
                         autosave_partida()
@@ -1757,7 +1787,7 @@ elif menu == "⚽ Resultados":
                         st.write(resultado)
 
     with tab_copa:
-        if not st.session_state.copa:
+        if not st.session_state.get('copa'):
             st.info("La Copa todavía no ha comenzado.")
         else:
             for semi in st.session_state.copa.get("semifinales", []):
@@ -1829,6 +1859,33 @@ elif menu == "⚡ Pro Admin":
                 f"Simular Jornada {min(st.session_state.jornada_actual, 11)}/11"
             )
 
+            st.markdown("### 👥 Control Supremo de clubes")
+            st.caption("Tú decides desde aquí qué clubes son 👤 HUMANOS y cuáles siguen como 🤖 BOT IA.")
+
+            cols = st.columns(3)
+            for n, club in enumerate(st.session_state.equipos):
+                with cols[n % 3]:
+                    estado = "👤 HUMANO" if club.es_humano else "🤖 BOT IA"
+                    st.markdown(f"**#{club.id_club} {club.emoji} {club.nombre}**")
+                    st.caption(estado)
+                    modo = st.radio(
+                        "Control",
+                        ["🤖 BOT IA", "👤 HUMANO"],
+                        index=1 if club.es_humano else 0,
+                        horizontal=True,
+                        key=f"admin_modo_{club.id_club}",
+                        label_visibility="collapsed",
+                    )
+                    if st.button("Aplicar", key=f"admin_aplicar_{club.id_club}", use_container_width=True):
+                        club.es_humano = modo == "👤 HUMANO"
+                        if not club.es_humano:
+                            club.presidente = f"🤖 Bot {club.nombre}"
+                        autosave_partida()
+                        st.success(f"{club.nombre} ahora es {modo}.")
+                        st.rerun()
+
+            st.markdown("---")
+
             if st.session_state.jornada_actual <= TOTAL_JORNADAS:
                 if st.button(
                     "🚀 Simular Jornada + Acciones IA",
@@ -1863,26 +1920,26 @@ elif menu == "⚡ Pro Admin":
             else:
                 preparar_copa()
 
-                if not st.session_state.copa_semis_jugadas:
+                if not st.session_state.get('copa_semis_jugadas', False):
                     if st.button("🔥 Simular Semifinales Copa"):
                         jugar_semifinales_copa()
                         autosave_partida()
                         st.rerun()
 
-                if st.session_state.copa_semis_jugadas:
+                if st.session_state.get('copa_semis_jugadas', False):
                     for semi in st.session_state.copa["semifinales"]:
                         st.write(semi["resultado"])
 
                 if (
                     st.session_state.copa_semis_jugadas
-                    and not st.session_state.copa_final_jugada
+                    and not st.session_state.get('copa_final_jugada', False)
                 ):
                     if st.button("🏆 Simular Final Copa"):
                         jugar_final_copa()
                         autosave_partida()
                         st.rerun()
 
-                if st.session_state.copa_final_jugada:
+                if st.session_state.get('copa_final_jugada', False):
                     st.success(
                         f"🏆 Campeón Copa: "
                         f"{st.session_state.copa['campeon']} · "
@@ -1899,16 +1956,16 @@ elif menu == "⚡ Pro Admin":
                         st.write(
                             f"{eq.emoji} {eq.nombre} · {eq.pais} · "
                             f"⭐ {eq.calcular_media_equipo()} · "
-                            f"IA {eq.estilo_ia}"
+                            f"IA {getattr(eq, 'estilo_ia', 'Equilibrado')}"
                         )
 
-                    if not st.session_state.mundial_semis_jugadas:
+                    if not st.session_state.get('mundial_semis_jugadas', False):
                         if st.button("🔥 Simular Semifinales Mundial"):
                             jugar_semifinales_mundial()
                             autosave_partida()
                             st.rerun()
 
-                    if st.session_state.mundial_semis_jugadas:
+                    if st.session_state.get('mundial_semis_jugadas', False):
                         for semi in st.session_state.mundial["semifinales"]:
                             st.write(semi["resultado"])
 
@@ -1921,7 +1978,7 @@ elif menu == "⚡ Pro Admin":
                             autosave_partida()
                             st.rerun()
 
-                    if st.session_state.mundial_final_jugada:
+                    if st.session_state.get('mundial_final_jugada', False):
                         st.success(
                             f"🌍 Campeón Mundial: "
                             f"{st.session_state.mundial['campeon']} · "
@@ -1957,8 +2014,8 @@ elif menu == "⚡ Pro Admin":
                         estilo = st.selectbox(
                             "Estilo",
                             ESTILOS_IA,
-                            index=ESTILOS_IA.index(bot.estilo_ia)
-                            if bot.estilo_ia in ESTILOS_IA
+                            index=ESTILOS_IA.index(getattr(bot, 'estilo_ia', 'Equilibrado'))
+                            if getattr(bot, 'estilo_ia', 'Equilibrado') in ESTILOS_IA
                             else 0,
                             key=f"ia_estilo_{bot.id_club}",
                         )
@@ -2152,3 +2209,4 @@ try:
     autosave_partida()
 except Exception:
     pass
+
