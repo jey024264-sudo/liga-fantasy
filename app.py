@@ -1008,3 +1008,134 @@ elif menu == "⚡ Pro Admin":
           guardar_partida()
           st.success(f"¡Jornada simulada con éxito!")
           st.rerun()
+      else:
+        st.warning("Se han jugado todas las jornadas de la liga.")
+
+    with tab2:
+      st.subheader("🏆 Torneos Post-Liga (Copa de España y Mundial)")
+      col_copa1, col_copa2 = st.columns(2)
+
+      with col_copa1:
+        st.write("### Copa de España")
+        if st.button("🇪🇸 Simular Copa de España"):
+          clasificados_copa = sorted(
+              st.session_state.equipos, key=lambda x: x.puntos, reverse=True
+          )[:4]
+          if len(clasificados_copa) >= 4:
+            semifinal_1 = random.sample(clasificados_copa, 2)
+            restantes = [
+                e
+                for e in clasificados_copa
+                if e not in semifinal_1
+            ]
+            semifinal_2 = restantes
+
+            res_s1 = random.choice(semifinal_1)
+            res_s2 = random.choice(semifinal_2)
+
+            st.session_state.campeon_copa = res_s1
+            texto_copa = (
+                f"🏆 **Copa de España Simulada**\n\n- Campeón: **{res_s1.emoji}"
+                f" {res_s1.nombre}**\n- Subcampeón: **{res_s2.emoji}"
+                f" {res_s2.nombre}**"
+            )
+            if "historial_copas" not in st.session_state:
+              st.session_state.historial_copas = []
+            st.session_state.historial_copas.append(texto_copa)
+            guardar_partida()
+            st.success(
+                f"¡Copa simulada! Campeón: {res_s1.emoji} {res_s1.nombre}"
+            )
+            st.rerun()
+          else:
+            st.warning("Se necesitan al menos 4 equipos en la liga.")
+
+      with col_copa2:
+        st.write("### Mundial de Clubes")
+        if st.button("🌍 Simular Mundial de Clubes"):
+          candidato_mundial = max(
+              st.session_state.equipos, key=lambda x: x.calcular_media_equipo()
+          )
+          texto_mundial = (
+              f"🌍 **Mundial de Clubes Simulado**\n\n- Campeón Mundial:"
+              f" **{candidato_mundial.emoji} {candidato_mundial.nombre}**"
+          )
+          if "historial_mundial" not in st.session_state:
+            st.session_state.historial_mundial = []
+          st.session_state.historial_mundial.append(texto_mundial)
+          guardar_partida()
+          st.success(
+              f"¡Mundial simulado! Campeón: {candidato_mundial.emoji}"
+              f" {candidato_mundial.nombre}"
+          )
+          st.rerun()
+
+    with tab3:
+      st.subheader("🤖 Configuración y Automatización de Bots IA")
+      st.write(
+          "Aquí puedes activar o desactivar el comportamiento automático de los"
+          " bots en el mercado."
+      )
+      if st.button("🤖 Ejecutar Ciclo de IA Manualmente"):
+        ejecutar_logica_bots()
+        guardar_partida()
+        st.success("¡Ciclo de inteligencia artificial ejecutado con éxito!")
+
+    with tab4:
+      st.subheader("💰 Gestor Financiero Global")
+      monto_inyeccion = st.number_input(
+          "Cantidad de dinero a inyectar/retirar (€):",
+          step=10_000_000,
+          value=10_000_000,
+      )
+      club_afectado = st.selectbox(
+          "Selecciona el club:", [e.nombre for e in st.session_state.equipos]
+      )
+      eq_afectado = next(
+          e for e in st.session_state.equipos if e.nombre == club_afectado
+      )
+
+      col_inj1, col_inj2 = st.columns(2)
+      with col_inj1:
+        if st.button("➕ Inyectar Fondos"):
+          eq_afectado.presupuesto += monto_inyeccion
+          guardar_partida()
+          st.success(
+              f"¡Se han añadido {monto_inyeccion:,} € a {eq_afectado.nombre}!"
+          )
+          st.rerun()
+      with col_inj2:
+        if st.button("➖ Retirar Fondos"):
+          eq_afectado.presupuesto = max(
+              0, eq_afectado.presupuesto - monto_inyeccion
+          )
+          guardar_partida()
+          st.warning(
+              f"¡Se han retirado fondos al club {eq_afectado.nombre}!"
+          )
+          st.rerun()
+
+    with tab5:
+      st.subheader("🛠️ Modificar Estadísticas de Clubes y PINs")
+      club_mod = st.selectbox(
+          "Selecciona el club a editar:",
+          [e.nombre for e in st.session_state.equipos],
+          key="mod_club_select",
+      )
+      eq_mod = next(
+          e for e in st.session_state.equipos if e.nombre == club_mod
+      )
+
+      nuevo_pin = st.text_input("Nuevo PIN de Acceso:", value=eq_mod.password)
+      nuevo_presi = st.text_input(
+          "Nombre del Presidente:", value=eq_mod.presidente
+      )
+      es_humano_bool = st.checkbox("¿Controlado por Humano?", value=eq_mod.es_humano)
+
+      if st.button("💾 Guardar Cambios del Club"):
+        eq_mod.password = str(nuevo_pin).strip()
+        eq_mod.presidente = nuevo_presi.strip()
+        eq_mod.es_humano = es_humano_bool
+        guardar_partida()
+        st.success(f"¡Datos de {eq_mod.nombre} actualizados correctamente!")
+        st.rerun()
