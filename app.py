@@ -1064,35 +1064,78 @@ def inicializar_nueva_partida():
 # AUTOCORRECCIÓN / MIGRACIÓN BETA 3.0
 # ============================================================
 def reparar_estado_beta3():
+    """Normaliza partidas de Beta 3.0 para evitar AttributeError por estados antiguos."""
     defaults = {
-        "copa": None, "mundial": None, "campeon_copa": None,
-        "equipos_mundial": [], "historial_resultados": [],
-        "historial_copas": [], "historial_mundial": [],
-        "historial_finanzas": [], "noticias": [], "premios_liga": [],
-        "premios_liga_repartidos": False, "copa_semis_jugadas": False,
-        "copa_final_jugada": False, "mundial_semis_jugadas": False,
-        "mundial_final_jugada": False, "ofertas_fichaje": [],
-        "mercado_pool": [], "subasta_idx": 0, "puja_max": 0,
-        "lider_puja_eq": None, "subasta_activa": False,
+        "copa": None,
+        "mundial": None,
+        "campeon_copa": None,
+        "equipos_mundial": [],
+        "historial_resultados": [],
+        "historial_copas": [],
+        "historial_mundial": [],
+        "historial_finanzas": [],
+        "noticias": [],
+        "premios_liga": [],
+        "premios_liga_repartidos": False,
+        "copa_semis_jugadas": False,
+        "copa_final_jugada": False,
+        "mundial_semis_jugadas": False,
+        "mundial_final_jugada": False,
+        "ofertas_fichaje": [],
+        "mercado_pool": [],
+        "subasta_idx": 0,
+        "puja_max": 0,
+        "lider_puja_eq": None,
+        "subasta_activa": False,
         "hora_fin_subasta": None,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
-            st.session_state[key] = value.copy() if isinstance(value, list) else value
-    for eq in st.session_state.get("equipos", []):
+            st.session_state[key] = list(value) if isinstance(value, list) else value
+
+    equipos = st.session_state.get("equipos", [])
+    if not isinstance(equipos, list):
+        st.session_state.equipos = []
+        equipos = []
+
+    for eq in equipos:
         if not hasattr(eq, "es_humano"):
             eq.es_humano = False
-        if not hasattr(eq, "estilo_ia"):
+        if not hasattr(eq, "estilo_ia") or eq.estilo_ia not in ESTILOS_IA:
             eq.estilo_ia = random.choice(ESTILOS_IA)
-        if not hasattr(eq, "password"):
-            eq.password = str(eq.id_club)
-        if not hasattr(eq, "pais"):
+        if not hasattr(eq, "password") or not str(eq.password):
+            eq.password = str(getattr(eq, "id_club", 1))
+        if not hasattr(eq, "pais") or not eq.pais:
             eq.pais = "España"
+        if not hasattr(eq, "presupuesto"):
+            eq.presupuesto = PRESUPUESTO_INICIAL
+        if not hasattr(eq, "plantilla"):
+            eq.plantilla = []
+
+    # El líder de una puja debe apuntar siempre a un objeto Equipo actual.
+    lider = st.session_state.get("lider_puja_eq")
+    if lider is not None and not hasattr(lider, "id_club"):
+        st.session_state.lider_puja_eq = None
+
+    # Si el pool existe pero la referencia del jugador se perdió, la reconstruimos.
+    pool = st.session_state.get("mercado_pool", [])
+    if pool:
+        idx = max(0, min(int(st.session_state.get("subasta_idx", 0)), len(pool) - 1))
+        st.session_state.subasta_idx = idx
+        actual = st.session_state.get("subasta_actual")
+        if actual is None or not hasattr(actual, "nombre"):
+            st.session_state.subasta_actual = pool[idx]
+    else:
+        st.session_state.subasta_actual = None
+        st.session_state.subasta_activa = False
+
 
 if "liga_inicializada" not in st.session_state:
     if not cargar_partida():
         inicializar_nueva_partida()
         autosave_partida()
+
+reparar_estado_beta3()
 
 if "es_admin_autenticado" not in st.session_state:
     st.session_state.es_admin_autenticado = False
@@ -1164,10 +1207,15 @@ if "mi_equipo" not in st.session_state and not st.session_state.es_solo_admin:
 # Refresca referencia del club conectado
 if not st.session_state.es_solo_admin and "mi_equipo" in st.session_state:
     nombre_actual = st.session_state.mi_equipo.nombre
-    st.session_state.mi_equipo = next(
-        e for e in st.session_state.equipos
-        if e.nombre == nombre_actual
+    encontrado = next(
+        (e for e in st.session_state.equipos if e.nombre == nombre_actual),
+        None,
     )
+    if encontrado is not None:
+        st.session_state.mi_equipo = encontrado
+    else:
+        st.session_state.pop("mi_equipo", None)
+        st.rerun()
 
 
 # ============================================================
@@ -1472,11 +1520,16 @@ elif menu == "🔥 Subastas":
                 else:
                     st.error("No tienes presupuesto suficiente.")
 
-        if st.button("🔨 Cerrar subasta"):
-            cerrar_subasta()
-            autosave_partida()
-            st.success("Subasta cerrada.")
-            st.rerun()
+        # En Beta 3.0 solo el Administrador Supremo puede cerrar manualmente una subasta.
+        # La subasta automática por tiempo se implementará en Beta 3.1.
+        if st.session_state.get("es_admin_autenticado", False):
+            if st.button("🔨 Cerrar subasta", type="primary"):
+                cerrar_subasta()
+                autosave_partida()
+                st.success("Subasta cerrada por el Administrador Supremo.")
+                st.rerun()
+        else:
+            st.info("🔐 Solo el Administrador Supremo puede cerrar manualmente la subasta en Beta 3.0.")
 
 
 # ============================================================
@@ -2206,7 +2259,9 @@ elif menu == "⚡ Pro Admin":
 # ============================================================
 
 try:
+    reparar_estado_beta3()
     autosave_partida()
 except Exception:
     pass
+
 
