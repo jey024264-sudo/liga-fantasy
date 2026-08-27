@@ -111,7 +111,6 @@ def simular_partido_eliminatorio(eq1_nom, media1, eq2_nom, media2):
     g1 = max(0, int(random.gauss(esp1, 0.9)))
     g2 = max(0, int(random.gauss(esp2, 0.9)))
     
-    # Desempate por penaltis si quedan tablas
     if g1 == g2:
         pen1, pen2 = 0, 0
         while pen1 == pen2:
@@ -127,12 +126,17 @@ def simular_partido_eliminatorio(eq1_nom, media1, eq2_nom, media2):
 
 # --- FUNCIONES DE PERSISTENCIA ---
 def guardar_partida():
+    # Guardamos únicamente el NOMBRE del campeón de copa en lugar del objeto
+    campeon_nombre = None
+    if st.session_state.get("campeon_copa"):
+        campeon_nombre = st.session_state.campeon_copa.nombre if isinstance(st.session_state.campeon_copa, Equipo) else st.session_state.campeon_copa
+
     data = {
         "jornada_actual": st.session_state.jornada_actual,
         "historial_resultados": st.session_state.historial_resultados,
         "historial_copas": st.session_state.get("historial_copas", []),
         "historial_mundial": st.session_state.get("historial_mundial", []),
-        "campeon_copa": st.session_state.get("campeon_copa", None),
+        "campeon_copa": campeon_nombre,
         "equipos": [e.to_dict() for e in st.session_state.equipos],
         "mercado_pool": [j.to_dict() for j in st.session_state.mercado_pool],
         "subasta_idx": st.session_state.subasta_idx,
@@ -152,8 +156,15 @@ def cargar_partida():
         st.session_state.historial_resultados = data["historial_resultados"]
         st.session_state.historial_copas = data.get("historial_copas", [])
         st.session_state.historial_mundial = data.get("historial_mundial", [])
-        st.session_state.campeon_copa = data.get("campeon_copa", None)
         st.session_state.equipos = [Equipo.from_dict(e) for e in data["equipos"]]
+        
+        # Recuperar objeto Campeón de Copa desde su nombre
+        camp_nom = data.get("campeon_copa")
+        if camp_nom:
+            st.session_state.campeon_copa = next((e for e in st.session_state.equipos if e.nombre == camp_nom), None)
+        else:
+            st.session_state.campeon_copa = None
+
         st.session_state.mercado_pool = [Jugador.from_dict(j) for j in data["mercado_pool"]]
         st.session_state.subasta_idx = data["subasta_idx"]
         st.session_state.puja_max = data["puja_max"]
