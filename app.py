@@ -5,22 +5,29 @@ import random
 import streamlit as st
 
 # ============================================================
-# LIGA MANAGER FANTASY — BETA 3.1
+# LIGA MANAGER FANTASY — BETA 3.5
 # ============================================================
 # 12 clubes | 11 jornadas | Copa de España | Mundial de Clubes
 # IA autónoma | Mercado | Subastas | Finanzas | Historial
 # ============================================================
 
 st.set_page_config(
-    page_title="Liga Manager Fantasy Beta 3.1",
+    page_title="Liga Manager Fantasy Beta 3.5",
     page_icon="⚽",
     layout="wide",
 )
 
 PRESUPUESTO_INICIAL = 200_000_000
 CLAVE_ADMIN = "1234"
-ARCHIVO_GUARDADO = "liga_estado_beta31.json"
+ARCHIVO_GUARDADO = "liga_estado_beta35.json"
 TOTAL_JORNADAS = 11
+
+# Automatización Beta 3.5
+INTERVALO_JORNADA_MIN = 4
+ESPERA_POST_LIGA_MIN = 10
+ESPERA_POST_COPA_MIN = 10
+INTERVALO_UI_SEG = 15
+ARCHIVO_LOCK_AUTO = "liga_manager_auto35.lock"
 
 # Premios oficiales
 PREMIOS_LIGA = {
@@ -1008,6 +1015,184 @@ def iniciar_nueva_temporada():
 
 
 # ============================================================
+# AUTOMATIZACIÓN BETA 3.5
+# ============================================================
+
+def asegurar_config_automatizacion():
+    defaults = {
+        "automatizacion_activa": False,
+        "auto_fase": "liga",
+        "auto_proximo_evento": None,
+        "auto_ultimo_evento": None,
+        "auto_estado": "Manual",
+    }
+    for key, value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
+
+
+def _fecha_auto(valor):
+    if not valor:
+        return None
+    if isinstance(valor, datetime.datetime):
+        return valor
+    try:
+        return datetime.datetime.fromisoformat(str(valor))
+    except Exception:
+        return None
+
+
+def configurar_automatizacion_35(activa):
+    """Activa/desactiva el motor automático. Solo lo invoca el Admin."""
+    asegurar_config_automatizacion()
+    st.session_state.automatizacion_activa = bool(activa)
+    if activa:
+        ahora = datetime.datetime.now()
+        jornada = int(st.session_state.get("jornada_actual", 1))
+        if jornada <= TOTAL_JORNADAS:
+            st.session_state.auto_fase = "liga"
+            if not _fecha_auto(st.session_state.get("auto_proximo_evento")):
+                st.session_state.auto_proximo_evento = ahora + datetime.timedelta(minutes=INTERVALO_JORNADA_MIN)
+        elif not st.session_state.get("copa_final_jugada", False):
+            st.session_state.auto_fase = "copa"
+            st.session_state.auto_proximo_evento = ahora + datetime.timedelta(minutes=ESPERA_POST_LIGA_MIN)
+        elif not st.session_state.get("mundial_final_jugada", False):
+            st.session_state.auto_fase = "mundial"
+            st.session_state.auto_proximo_evento = ahora + datetime.timedelta(minutes=ESPERA_POST_COPA_MIN)
+        else:
+            st.session_state.auto_fase = "finalizado"
+            st.session_state.auto_proximo_evento = None
+        st.session_state.auto_estado = "Automático activo"
+    else:
+        st.session_state.auto_estado = "Manual"
+        st.session_state.auto_proximo_evento = None
+    autosave_partida()
+
+
+def _obtener_lock_auto():
+    """Evita que dos sesiones de Streamlit ejecuten el mismo evento automático."""
+    try:
+        ahora = datetime.datetime.now().timestamp()
+        if os.path.exists(ARCHIVO_LOCK_AUTO):
+            try:
+                if ahora - os.path.getmtime(ARCHIVO_LOCK_AUTO) < 60:
+                    return False
+                os.remove(ARCHIVO_LOCK_AUTO)
+            except OSError:
+                return False
+        fd = os.open(ARCHIVO_LOCK_AUTO, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.write(fd, str(ahora).encode("utf-8"))
+        os.close(fd)
+        return True
+    except (FileExistsError, OSError):
+        return False
+
+
+def _liberar_lock_auto():
+    try:
+        os.remove(ARCHIVO_LOCK_AUTO)
+    except OSError:
+        pass
+
+
+def _preparar_siguiente_automatico(fase, minutos):
+    st.session_state.auto_fase = fase
+    st.session_state.auto_proximo_evento = datetime.datetime.now() + datetime.timedelta(minutes=minutos)
+
+
+def ejecutar_evento_automatico_35():
+    """Ejecuta como máximo un evento programado por llamada."""
+    asegurar_config_automatizacion()
+    if not st.session_state.get("automatizacion_activa", False):
+        return False
+    if st.session_state.get("auto_fase") == "finalizado":
+        return False
+
+    proximo = _fecha_auto(st.session_state.get("auto_proximo_evento"))
+    if proximo is None:
+        configurar_automatizacion_35(True)
+        return False
+    if datetime.datetime.now() < proximo:
+        return False
+    if not _obtener_lock_auto():
+        return False
+
+    try:
+        ejecutado = False
+        fase = st.session_state.get("auto_fase", "liga")
+        ahora = datetime.datetime.now()
+
+        if fase == "liga":
+            if st.session_state.jornada_actual <= TOTAL_JORNADAS:
+                ejecutado = True
+                ejecutar_ia()
+                simular_jornada()
+                autosave_partida()
+                if st.session_state.jornada_actual <= TOTAL_JORNADAS:
+                    _preparar_siguiente_automatico("liga", INTERVALO_JORNADA_MIN)
+                else:
+                    repartir_premios_liga()
+                    preparar_copa()
+                    _preparar_siguiente_automatico("copa", ESPERA_POST_LIGA_MIN)
+                    registrar_evento("⏱️ Liga terminada. La Copa de España se simulará en 10 minutos.")
+            else:
+                preparar_copa()
+                _preparar_siguiente_automatico("copa", ESPERA_POST_LIGA_MIN)
+
+        elif fase == "copa":
+            ejecutado = True
+            preparar_copa()
+            if not st.session_state.get("copa_semis_jugadas", False):
+                jugar_semifinales_copa()
+            if not st.session_state.get("copa_final_jugada", False):
+                jugar_final_copa()
+            crear_mundial()
+            _preparar_siguiente_automatico("mundial", ESPERA_POST_COPA_MIN)
+            registrar_evento("🏆 Copa de España simulada automáticamente. El Mundial comienza en 10 minutos.")
+            autosave_partida()
+
+        elif fase == "mundial":
+            ejecutado = True
+            crear_mundial()
+            if not st.session_state.get("mundial_semis_jugadas", False):
+                jugar_semifinales_mundial()
+            if not st.session_state.get("mundial_final_jugada", False):
+                jugar_final_mundial()
+            st.session_state.auto_fase = "finalizado"
+            st.session_state.auto_proximo_evento = None
+            st.session_state.auto_estado = "Temporada completada automáticamente"
+            registrar_evento("🌍 Mundial de Clubes completado automáticamente.")
+            autosave_partida()
+    finally:
+        _liberar_lock_auto()
+    return ejecutado
+
+
+def segundos_hasta_proximo_evento():
+    asegurar_config_automatizacion()
+    if not st.session_state.get("automatizacion_activa", False):
+        return None
+    dt = _fecha_auto(st.session_state.get("auto_proximo_evento"))
+    if dt is None:
+        return None
+    return max(0, int((dt - datetime.datetime.now()).total_seconds()))
+
+
+def texto_proximo_evento():
+    asegurar_config_automatizacion()
+    if not st.session_state.get("automatizacion_activa", False):
+        return "⏸️ Automatización desactivada"
+    fase = st.session_state.get("auto_fase", "liga")
+    if fase == "liga":
+        return f"📅 Próxima jornada · Jornada {min(st.session_state.get('jornada_actual', 1), TOTAL_JORNADAS)}/{TOTAL_JORNADAS}"
+    if fase == "copa":
+        return "🏆 Próximo evento · Copa de España"
+    if fase == "mundial":
+        return "🌍 Próximo evento · Mundial de Clubes"
+    return "🏁 Temporada completada"
+
+
+# ============================================================
 # GUARDADO / CARGA
 # ============================================================
 
@@ -1020,7 +1205,7 @@ def autosave_partida():
     lider_nombre = lider.nombre if hasattr(lider, "nombre") else lider
 
     data = {
-        "version": "3.1",
+        "version": "3.5",
         "temporada": st.session_state.get("temporada", 1),
         "jornada_actual": st.session_state.jornada_actual,
         "calendario": st.session_state.calendario,
@@ -1059,6 +1244,15 @@ def autosave_partida():
             if st.session_state.get("ventana_ventas_lava") else None
         ),
         "historial_mercado_negro": st.session_state.get("historial_mercado_negro", []),
+        "automatizacion_activa": st.session_state.get("automatizacion_activa", False),
+        "auto_fase": st.session_state.get("auto_fase", "liga"),
+        "auto_proximo_evento": (
+            st.session_state.auto_proximo_evento.isoformat()
+            if _fecha_auto(st.session_state.get("auto_proximo_evento"))
+            else None
+        ),
+        "auto_ultimo_evento": st.session_state.get("auto_ultimo_evento"),
+        "auto_estado": st.session_state.get("auto_estado", "Manual"),
     }
 
     with open(ARCHIVO_GUARDADO, "w", encoding="utf-8") as f:
@@ -1149,6 +1343,11 @@ def cargar_partida():
             if ventana_lava else datetime.datetime.now().replace(minute=0, second=0, microsecond=0)
         )
         st.session_state.historial_mercado_negro = data.get("historial_mercado_negro", [])
+        st.session_state.automatizacion_activa = bool(data.get("automatizacion_activa", False))
+        st.session_state.auto_fase = data.get("auto_fase", "liga")
+        st.session_state.auto_proximo_evento = _fecha_auto(data.get("auto_proximo_evento"))
+        st.session_state.auto_ultimo_evento = data.get("auto_ultimo_evento")
+        st.session_state.auto_estado = data.get("auto_estado", "Manual")
 
         camp_nom = data.get("campeon_copa")
         st.session_state.campeon_copa = camp_nom
@@ -1200,6 +1399,11 @@ def inicializar_nueva_partida():
     st.session_state.historial_mundial = []
     st.session_state.historial_finanzas = []
     st.session_state.noticias = []
+    st.session_state.automatizacion_activa = False
+    st.session_state.auto_fase = "liga"
+    st.session_state.auto_proximo_evento = None
+    st.session_state.auto_ultimo_evento = None
+    st.session_state.auto_estado = "Manual"
 
     st.session_state.copa = None
     st.session_state.mundial = None
@@ -1246,10 +1450,10 @@ def inicializar_nueva_partida():
 # ============================================================
 
 # ============================================================
-# AUTOCORRECCIÓN / MIGRACIÓN BETA 3.1
+# AUTOCORRECCIÓN / MIGRACIÓN BETA 3.5
 # ============================================================
-def reparar_estado_beta31():
-    """Normaliza partidas de Beta 3.1 para evitar AttributeError por estados antiguos."""
+def reparar_estado_beta35():
+    """Normaliza partidas de Beta 3.5 para evitar AttributeError por estados antiguos."""
     defaults = {
         "copa": None,
         "mundial": None,
@@ -1277,6 +1481,11 @@ def reparar_estado_beta31():
         "ventas_lava_hora": {},
         "ventana_ventas_lava": datetime.datetime.now().replace(minute=0, second=0, microsecond=0),
         "historial_mercado_negro": [],
+        "automatizacion_activa": False,
+        "auto_fase": "liga",
+        "auto_proximo_evento": None,
+        "auto_ultimo_evento": None,
+        "auto_estado": "Manual",
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -1326,9 +1535,11 @@ if "liga_inicializada" not in st.session_state:
         inicializar_nueva_partida()
         autosave_partida()
 
-reparar_estado_beta31()
+reparar_estado_beta35()
 procesar_reloj_subasta()
 reiniciar_limite_lava_si_corresponde()
+asegurar_config_automatizacion()
+ejecutar_evento_automatico_35()
 
 if "es_admin_autenticado" not in st.session_state:
     st.session_state.es_admin_autenticado = False
@@ -1340,8 +1551,11 @@ if "es_solo_admin" not in st.session_state:
 # PORTAL DE ACCESO
 # ============================================================
 
+if "mostrar_admin_login" not in st.session_state:
+    st.session_state.mostrar_admin_login = False
+
 if "mi_equipo" not in st.session_state and not st.session_state.es_solo_admin:
-    st.title("🎮 Liga Manager Fantasy — Beta 3.1")
+    st.title("🎮 Liga Manager Fantasy — Beta 3.5")
     st.caption("12 clubes · IA · Copa de España · Mundial de Clubes")
 
     col_jugador, col_admin = st.columns(2)
@@ -1380,19 +1594,24 @@ if "mi_equipo" not in st.session_state and not st.session_state.es_solo_admin:
                 st.error("PIN incorrecto.")
 
     with col_admin:
-        st.subheader("👑 Administrador Supremo")
-        pwd = st.text_input(
-            "Clave de Administrador Supremo:",
-            type="password",
-            key="pwd_admin_main",
-        )
-        if st.button("Entrar como Administrador"):
-            if pwd == CLAVE_ADMIN:
-                st.session_state.es_solo_admin = True
-                st.session_state.es_admin_autenticado = True
-                st.rerun()
-            else:
-                st.error("Clave incorrecta.")
+        st.markdown("### ⚙️")
+        st.caption("Acceso privado")
+        if st.button("⚙️", help="Acceso del Administrador Supremo", key="abrir_admin_login"):
+            st.session_state.mostrar_admin_login = not st.session_state.mostrar_admin_login
+        if st.session_state.mostrar_admin_login:
+            pwd = st.text_input(
+                "Clave de Administrador Supremo:",
+                type="password",
+                key="pwd_admin_main",
+            )
+            if st.button("👑 Entrar", type="primary", key="entrar_admin_compacto"):
+                if pwd == CLAVE_ADMIN:
+                    st.session_state.es_solo_admin = True
+                    st.session_state.es_admin_autenticado = True
+                    st.session_state.mostrar_admin_login = False
+                    st.rerun()
+                else:
+                    st.error("Clave incorrecta.")
 
     st.stop()
 
@@ -1457,6 +1676,8 @@ opciones_menu = [
 
 if st.session_state.es_solo_admin:
     opciones_menu.remove("📋 Mi Plantilla")
+else:
+    opciones_menu.remove("⚡ Pro Admin")
 
 menu = st.sidebar.radio("Navegación", opciones_menu)
 
@@ -1466,8 +1687,21 @@ menu = st.sidebar.radio("Navegación", opciones_menu)
 # ============================================================
 
 if menu == "🏠 Inicio":
-    st.title("⚽ Liga Manager Fantasy — BETA 3.1")
+    st.title("⚽ Liga Manager Fantasy — BETA 3.5")
     st.subheader("Tu carrera de manager empieza aquí.")
+
+    # Centro de próximos eventos: visible para todos, controlado por Admin.
+    asegurar_config_automatizacion()
+    cnext1, cnext2 = st.columns([3, 1])
+    with cnext1:
+        st.info(f"**{texto_proximo_evento()}**")
+    with cnext2:
+        seg = segundos_hasta_proximo_evento()
+        if seg is not None:
+            mm, ss = divmod(seg, 60)
+            st.metric("⏱️ Temporizador", f"{mm:02d}:{ss:02d}")
+        else:
+            st.metric("⏱️ Temporizador", "MANUAL")
 
     tabla = clasificacion()
     posicion_usuario = None
@@ -2122,7 +2356,7 @@ elif menu == "📰 Noticias":
 # ============================================================
 
 elif menu == "⚡ Pro Admin":
-    st.header("⚡ Panel Pro Admin — Beta 3.1")
+    st.header("⚡ Panel Pro Admin — Beta 3.5")
     st.caption("👑 Centro de control: humanos, bots, liga, torneos, finanzas y seguridad.")
 
     if not st.session_state.es_admin_autenticado:
@@ -2140,6 +2374,48 @@ elif menu == "⚡ Pro Admin":
     else:
         st.success("🔓 Administrador autenticado.")
 
+        st.subheader("⏱️ Automatización de la temporada")
+        asegurar_config_automatizacion()
+        ac1, ac2, ac3 = st.columns([2, 2, 2])
+        with ac1:
+            estado_auto = "🟢 ACTIVA" if st.session_state.automatizacion_activa else "🔴 DESACTIVADA"
+            st.metric("Motor automático", estado_auto)
+        with ac2:
+            if st.session_state.automatizacion_activa:
+                if st.button("⏸️ DESACTIVAR AUTOMÁTICO", key="auto_off_35", type="secondary"):
+                    configurar_automatizacion_35(False)
+                    st.rerun()
+            else:
+                if st.button("▶️ ACTIVAR AUTOMÁTICO", key="auto_on_35", type="primary"):
+                    configurar_automatizacion_35(True)
+                    st.rerun()
+        with ac3:
+            st.write(f"**{texto_proximo_evento()}**")
+            seg = segundos_hasta_proximo_evento()
+            if seg is not None:
+                st.caption(f"Faltan {seg//60:02d}:{seg%60:02d}")
+
+        st.markdown("---")
+        st.subheader("🎁 Regalar dinero")
+        clubes_regalo = [f"{e.id_club} · {e.emoji} {e.nombre}" for e in st.session_state.equipos]
+        gm1, gm2, gm3 = st.columns([2, 1, 1])
+        with gm1:
+            club_regalo = st.selectbox("Club receptor", clubes_regalo, key="club_regalo_35")
+        with gm2:
+            cantidad_regalo = st.number_input("Cantidad (€)", min_value=0, value=10_000_000, step=1_000_000, key="cantidad_regalo_35")
+        with gm3:
+            st.write("")
+            st.write("")
+            if st.button("🎁 REGALAR", type="primary", key="regalar_dinero_35"):
+                idx_regalo = clubes_regalo.index(club_regalo)
+                eq_regalo = st.session_state.equipos[idx_regalo]
+                eq_regalo.registrar_ingreso(int(cantidad_regalo), "Regalo del Administrador Supremo")
+                registrar_evento(f"👑 El Administrador Supremo regaló {dinero(cantidad_regalo)} a {eq_regalo.nombre}.")
+                autosave_partida()
+                st.success(f"{eq_regalo.nombre} recibió {dinero(cantidad_regalo)}.")
+                st.rerun()
+
+        st.markdown("---")
         tab1, tab2, tab3, tab4, tab5 = st.tabs([
             "⚽ Liga",
             "🏆 Torneos",
@@ -2510,11 +2786,37 @@ elif menu == "⚡ Pro Admin":
 
 
 # ============================================================
+# REFRESCO AUTOMÁTICO DE INTERFAZ BETA 3.5
+# ============================================================
+# Streamlit reciente permite refrescar solo este fragmento cada 15 s.
+# Si una instalación antigua no tiene st.fragment, la app sigue funcionando
+# de forma manual sin romperse.
+try:
+    _fragment = st.fragment
+except AttributeError:
+    _fragment = None
+
+if _fragment is not None:
+    @_fragment(run_every=f"{INTERVALO_UI_SEG}s")
+    def _motor_reloj_35():
+        asegurar_config_automatizacion()
+        subasta_antes = (st.session_state.get("subasta_idx", 0), st.session_state.get("subasta_activa", False))
+        procesar_reloj_subasta()
+        subasta_despues = (st.session_state.get("subasta_idx", 0), st.session_state.get("subasta_activa", False))
+        cambio = ejecutar_evento_automatico_35()
+        if cambio or subasta_antes != subasta_despues:
+            st.rerun()
+        if st.session_state.get("automatizacion_activa", False):
+            st.caption(f"🔄 Motor automático activo · {texto_proximo_evento()}")
+    _motor_reloj_35()
+
+# ============================================================
 # GUARDADO AUTOMÁTICO
 # ============================================================
 
 try:
-    reparar_estado_beta31()
+    reparar_estado_beta35()
     autosave_partida()
 except Exception:
     pass
+
