@@ -156,7 +156,7 @@ class Equipo:
     return eq
 
 
-# --- MOTORES DE SIMULACIÓN (LIGA, COPA, MUNDIAL) ---
+# --- MOTORES DE SIMULACIÓN ---
 def simular_jornada_liga():
   if st.session_state.jornada_actual > 11:
     return False
@@ -205,9 +205,6 @@ def simular_jornada_liga():
       (st.session_state.jornada_actual, res_jornada)
   )
   st.session_state.jornada_actual += 1
-  st.session_state.proximo_evento_tiempo = (
-      datetime.datetime.now() + datetime.timedelta(minutes=2)
-  )
   guardar_partida()
   return True
 
@@ -221,7 +218,6 @@ def simular_copa_espana_fase():
   top_4 = ordenados[:4]
   if len(top_4) < 4:
     return
-  # Semifinales y Final express
   semifinal_1 = (
       top_4[0]
       if top_4[0].calcular_media_equipo() >= top_4[3].calcular_media_equipo()
@@ -244,9 +240,6 @@ def simular_copa_espana_fase():
       f"🏆 Campeón Copa de España: {campeon.emoji} {campeon.nombre}"
   )
   st.session_state.fase_copa_jugada = True
-  st.session_state.proximo_evento_tiempo = (
-      datetime.datetime.now() + datetime.timedelta(minutes=10)
-  )
   guardar_partida()
 
 
@@ -261,7 +254,7 @@ def simular_mundial_clubes_fase():
       f" {campeon_mundial.nombre}"
   )
   st.session_state.fase_mundial_jugada = True
-  st.session_state.proximo_evento_tiempo = None  # Fin del ciclo automático
+  st.session_state.modo_auto_activo = False
   guardar_partida()
 
 
@@ -278,7 +271,7 @@ def guardar_partida():
   )
 
   data = {
-      "jornada_actual": st.session_state.jornada_actual,
+      "jornada_actual": st.session_state.get("jornada_actual", 1),
       "historial_resultados": st.session_state.get("historial_resultados", []),
       "historial_copas": st.session_state.get("historial_copas", []),
       "historial_mundial": st.session_state.get("historial_mundial", []),
@@ -288,7 +281,9 @@ def guardar_partida():
       "fase_mundial_jugada": st.session_state.get("fase_mundial_jugada", False),
       "modo_auto_activo": st.session_state.get("modo_auto_activo", False),
       "equipos": [e.to_dict() for e in st.session_state.equipos],
-      "mercado_pool": [j.to_dict() for j in st.session_state.mercado_pool],
+      "mercado_pool": [
+          j.to_dict() for j in st.session_state.get("mercado_pool", [])
+      ],
   }
   with open(ARCHIVO_GUARDADO, "w", encoding="utf-8") as f:
     json.dump(data, f, ensure_ascii=False, indent=4, default=str)
@@ -299,8 +294,10 @@ def cargar_partida():
     try:
       with open(ARCHIVO_GUARDADO, "r", encoding="utf-8") as f:
         data = json.load(f)
-      st.session_state.jornada_actual = data["jornada_actual"]
-      st.session_state.historial_resultados = data["historial_resultados"]
+      st.session_state.jornada_actual = data.get("jornada_actual", 1)
+      st.session_state.historial_resultados = data.get(
+          "historial_resultados", []
+      )
       st.session_state.historial_copas = data.get("historial_copas", [])
       st.session_state.historial_mundial = data.get("historial_mundial", [])
       st.session_state.campeon_copa = data.get("campeon_copa")
@@ -312,7 +309,7 @@ def cargar_partida():
       st.session_state.modo_auto_activo = data.get("modo_auto_activo", False)
       st.session_state.equipos = [Equipo.from_dict(e) for e in data["equipos"]]
       st.session_state.mercado_pool = [
-          Jugador.from_dict(j) for j in data["mercado_pool"]
+          Jugador.from_dict(j) for j in data.get("mercado_pool", [])
       ]
       st.session_state.liga_inicializada = True
       return True
@@ -405,6 +402,7 @@ if "liga_inicializada" not in st.session_state:
     st.session_state.fase_copa_jugada = False
     st.session_state.fase_mundial_jugada = False
     st.session_state.modo_auto_activo = False
+    st.session_state.mercado_pool = []
     st.session_state.liga_inicializada = True
     guardar_partida()
 
@@ -412,8 +410,8 @@ if "es_admin_autenticado" not in st.session_state:
   st.session_state.es_admin_autenticado = False
 if "es_solo_admin" not in st.session_state:
   st.session_state.es_solo_admin = False
-if "proximo_evento_tiempo" not in st.session_state:
-  st.session_state.proximo_evento_tiempo = None
+if "modo_auto_activo" not in st.session_state:
+  st.session_state.modo_auto_activo = False
 
 # --- PORTAL DE ACCESO ---
 if "mi_equipo" not in st.session_state and not st.session_state.es_solo_admin:
@@ -469,7 +467,7 @@ if not st.session_state.es_solo_admin and "mi_equipo" in st.session_state:
       e for e in st.session_state.equipos if e.nombre == nombre_actual
   )
 
-# --- BARRA LATERAL CON INDICADOR DE PRÓXIMO EVENTO ---
+# --- BARRA LATERAL ---
 st.sidebar.title("⚽ Panel de Control")
 if st.session_state.es_solo_admin:
   st.sidebar.write("Rol: **Comisionado Pro Admin**")
@@ -477,21 +475,19 @@ else:
   mi_eq = st.session_state.mi_equipo
   st.sidebar.write(f"Club: **{mi_eq.emoji} {mi_eq.nombre}**")
 
-# Indicador visual del estado del automatismo
 estado_auto_txt = (
     "🟢 ACTIVO (Automático)"
     if st.session_state.modo_auto_activo
     else "🔴 DESACTIVADO"
 )
 st.sidebar.markdown(f"**Modo Pro Automático:** {estado_auto_txt}")
-st.sidebar.markdown(f"Jornada de Liga Actual: **{st.session_state.jornada_actual} / 11**")
+st.sidebar.markdown(f"Jornada Actual: **{st.session_state.jornada_actual} / 11**")
 
-# Indicador de Próximo Evento / Próxima Jornada
 if st.session_state.jornada_actual <= 11:
   prox_nombre_evento = f"Jornada {st.session_state.jornada_actual}"
   intervalo_txt = "Cada 2 minutos"
 elif not st.session_state.fase_copa_jugada:
-  prox_nombre_evento = "Copa de España (Semifinales/Final)"
+  prox_nombre_evento = "Copa de España"
   intervalo_txt = "Cada 10 minutos"
 elif not st.session_state.fase_mundial_jugada:
   prox_nombre_evento = "Mundial de Clubes"
@@ -566,9 +562,9 @@ elif menu == "⚡ Pro Admin & Automatización":
     st.subheader("🎮 Control de Interruptor Automático")
     st.write(
         "Aquí puedes **activar** o **desactivar** el bot automático general."
-        " Cuando está activado, el sistema calculará de forma autónoma cada"
-        " partido de liga cada 2 minutos, y al acabar, pasará a la Copa de"
-        " España y Mundial de Clubes cada 10 minutos."
+        " Cuando está activado, el sistema simulará los partidos de liga cada 2"
+        " minutos, y al terminar, la Copa de España y el Mundial de Clubes cada"
+        " 10 minutos."
     )
 
     col_btn1, col_btn2 = st.columns(2)
@@ -615,15 +611,14 @@ elif menu == "⚡ Pro Admin & Automatización":
       else:
         st.warning("Debes finalizar la Copa de España primero.")
 
-    # Bucle inteligente automático si el interruptor está encendido
-    if st.session_state.modo_auto_activo:
+    # Ejecución automática segura con recarga por bucle de Streamlit
+    if st.session_state.get("modo_auto_activo", False):
       st.info(
-          "🤖 **Bot Pro Admin en ejecución autónoma...** La aplicación"
-          " comprobará los tiempos de espera establecidos."
+          "🤖 **Bot Pro Admin en ejecución autónoma...** La página se"
+          " actualizará automáticamente según el temporizador."
       )
-      # Control de pausas automáticas reales basadas en Streamlit
       if st.session_state.jornada_actual <= 11:
-        time.sleep(120)  # 2 minutos exactos para partidos de liga
+        time.sleep(120)  # 2 minutos para partidos de liga
         simular_jornada_liga()
         st.rerun()
       elif not st.session_state.fase_copa_jugada:
@@ -637,7 +632,7 @@ elif menu == "⚡ Pro Admin & Automatización":
       else:
         st.session_state.modo_auto_activo = False
         guardar_partida()
-        st.success("🎉 ¡Todos los eventos y torneos han finalizado con éxito!")
+        st.success("🎉 ¡Todos los torneos han finalizado con éxito!")
 
 elif menu == "📋 Mi Plantilla":
   mi_eq = st.session_state.mi_equipo
