@@ -102,11 +102,37 @@ class Equipo:
         eq.gc = d["gc"]
         return eq
 
+# --- FUNCIONES DE SIMULACIÓN DIRECTA ---
+def simular_partido_eliminatorio(eq1_nom, media1, eq2_nom, media2):
+    diferencia = media1 - media2
+    esp1 = max(0.5, 1.4 + (diferencia / 10.0))
+    esp2 = max(0.5, 1.4 - (diferencia / 10.0))
+    
+    g1 = max(0, int(random.gauss(esp1, 0.9)))
+    g2 = max(0, int(random.gauss(esp2, 0.9)))
+    
+    # Desempate por penaltis si quedan tablas
+    if g1 == g2:
+        pen1, pen2 = 0, 0
+        while pen1 == pen2:
+            pen1 = random.randint(3, 5)
+            pen2 = random.randint(3, 5)
+        ganador = eq1_nom if pen1 > pen2 else eq2_nom
+        res_str = f"{eq1_nom} **{g1} - {g2}** {eq2_nom} *(Penaltis: {pen1}-{pen2})*"
+        return ganador, res_str
+    else:
+        ganador = eq1_nom if g1 > g2 else eq2_nom
+        res_str = f"{eq1_nom} **{g1} - {g2}** {eq2_nom}"
+        return ganador, res_str
+
 # --- FUNCIONES DE PERSISTENCIA ---
 def guardar_partida():
     data = {
         "jornada_actual": st.session_state.jornada_actual,
         "historial_resultados": st.session_state.historial_resultados,
+        "historial_copas": st.session_state.get("historial_copas", []),
+        "historial_mundial": st.session_state.get("historial_mundial", []),
+        "campeon_copa": st.session_state.get("campeon_copa", None),
         "equipos": [e.to_dict() for e in st.session_state.equipos],
         "mercado_pool": [j.to_dict() for j in st.session_state.mercado_pool],
         "subasta_idx": st.session_state.subasta_idx,
@@ -124,6 +150,9 @@ def cargar_partida():
             data = json.load(f)
         st.session_state.jornada_actual = data["jornada_actual"]
         st.session_state.historial_resultados = data["historial_resultados"]
+        st.session_state.historial_copas = data.get("historial_copas", [])
+        st.session_state.historial_mundial = data.get("historial_mundial", [])
+        st.session_state.campeon_copa = data.get("campeon_copa", None)
         st.session_state.equipos = [Equipo.from_dict(e) for e in data["equipos"]]
         st.session_state.mercado_pool = [Jugador.from_dict(j) for j in data["mercado_pool"]]
         st.session_state.subasta_idx = data["subasta_idx"]
@@ -180,6 +209,9 @@ if "liga_inicializada" not in st.session_state:
         st.session_state.equipos = clubes
         st.session_state.jornada_actual = 1
         st.session_state.historial_resultados = []
+        st.session_state.historial_copas = []
+        st.session_state.historial_mundial = []
+        st.session_state.campeon_copa = None
         st.session_state.mercado_pool = [
             Jugador("Kylian Mbappé", "DEL", 91, 180_000_000),
             Jugador("Erling Haaland", "DEL", 91, 180_000_000),
@@ -281,6 +313,7 @@ if menu == "📊 Clasificación":
     datos = []
     ordenados = sorted(st.session_state.equipos, key=lambda x: (x.puntos, x.dg, x.gf), reverse=True)
     for idx, eq in enumerate(ordenados, 1):
+        zona = "🏆 Copa España" if idx <= 4 else ""
         datos.append({
             "Pos": idx,
             "Nº PIN": eq.id_club,
@@ -295,7 +328,8 @@ if menu == "📊 Clasificación":
             "GC": eq.gc,
             "DG": eq.dg,
             "Presupuesto": f"{eq.presupuesto:,} €",
-            "Media 11": eq.calcular_media_equipo()
+            "Media 11": eq.calcular_media_equipo(),
+            "Clasificación": zona
         })
     st.table(datos)
 
@@ -330,7 +364,6 @@ elif menu == "📋 Mi Plantilla":
     
     st.subheader("⚽ Selección del 11 Titular")
     
-    # Mapeo para mostrar Posición y GRL junto al nombre en los selectores
     dict_jugadores = {f"{j.nombre} ({j.posicion} - {j.grl} GRL)": j for j in mi_eq.plantilla}
     
     nuevos_titulares_nombres = []
@@ -339,10 +372,7 @@ elif menu == "📋 Mi Plantilla":
     for idx, pos_req in enumerate(posiciones_requeridas):
         col = cols[idx % 3]
         
-        # Candidatos ideales por posición
         candidatos_pos = [j for j in mi_eq.plantilla if j.posicion == pos_req]
-        
-        # Filtrar no seleccionados previamente en este renderizado
         disponibles_objs = [j for j in candidatos_pos if j.nombre not in nuevos_titulares_nombres]
 
         if not disponibles_objs:
@@ -351,10 +381,8 @@ elif menu == "📋 Mi Plantilla":
         if not disponibles_objs:
             disponibles_objs = mi_eq.plantilla
 
-        # Convertir a formato de etiqueta visible
         opciones_etiquetas = [f"{j.nombre} ({j.posicion} - {j.grl} GRL)" for j in disponibles_objs]
 
-        # Encontrar etiqueta predeterminada
         predeterminada_etiqueta = opciones_etiquetas[0]
         if idx < len(titulares_previos):
             nombre_previo = titulares_previos[idx]
@@ -442,16 +470,34 @@ elif menu == "🔥 Subastas":
             else:
                 st.error("No tienes suficiente dinero.")
 
-# 4. RESULTADOS
+# 4. RESULTADOS DE PARTIDOS Y TORNEOS
 elif menu == "⚽ Resultados":
-    st.header("⚽ Historial de Partidos")
-    if st.session_state.historial_resultados:
-        for j_num, res in reversed(st.session_state.historial_resultados):
-            with st.expander(f"Jornada {j_num}"):
-                for match in res:
-                    st.write(match)
-    else:
-        st.info("Aún no hay partidos simulados.")
+    st.header("⚽ Historial General de Competiciones")
+    
+    tab_liga, tab_copa, tab_mundial = st.tabs(["🏆 Liga", "🇪🇸 Copa de España", "🌍 Mundial de Clubes"])
+
+    with tab_liga:
+        if st.session_state.historial_resultados:
+            for j_num, res in reversed(st.session_state.historial_resultados):
+                with st.expander(f"Jornada {j_num}"):
+                    for match in res:
+                        st.write(match)
+        else:
+            st.info("Aún no hay partidos de Liga simulados.")
+
+    with tab_copa:
+        if st.session_state.get("historial_copas"):
+            for res in st.session_state.historial_copas:
+                st.markdown(res)
+        else:
+            st.info("La Copa de España aún no se ha disputado esta temporada.")
+
+    with tab_mundial:
+        if st.session_state.get("historial_mundial"):
+            for res in st.session_state.historial_mundial:
+                st.markdown(res)
+        else:
+            st.info("El Mundial de Clubes se jugará cuando haya un Campeón de Copa de España.")
 
 # 5. PANEL PRO ADMIN
 elif menu == "⚡ Pro Admin":
@@ -467,7 +513,7 @@ elif menu == "⚡ Pro Admin":
             else:
                 st.error("Clave incorrecta.")
     else:
-        tab1, tab2, tab3 = st.tabs(["⚽ Partidos & Mercado", "💰 Gestor Financiero", "🛠️ Modificar Stats & PINs"])
+        tab1, tab2, tab3, tab4 = st.tabs(["⚽ Partidos & Mercado", "🏆 Torneos Post-Liga", "💰 Gestor Financiero", "🛠️ Modificar Stats & PINs"])
 
         with tab1:
             st.subheader(f"Simular Jornada {st.session_state.jornada_actual}")
@@ -564,6 +610,109 @@ elif menu == "⚡ Pro Admin":
                 st.rerun()
 
         with tab2:
+            st.subheader("🇪🇸 Copa de España (Top 4 de Liga)")
+            
+            if st.session_state.jornada_actual > 11:
+                top4 = sorted(st.session_state.equipos, key=lambda x: (x.puntos, x.dg, x.gf), reverse=True)[:4]
+                st.write("Equipos clasificados:")
+                for i, eq in enumerate(top4, 1):
+                    st.write(f"**{i}º** {eq.emoji} {eq.nombre} ({eq.calcular_media_equipo()} GRL)")
+                
+                if st.button("🏆 Simular Copa de España"):
+                    st.session_state.historial_copas = []
+                    
+                    eq1, eq2, eq3, eq4 = top4[0], top4[1], top4[2], top4[3]
+                    
+                    gan_sf1, res_sf1 = simular_partido_eliminatorio(
+                        f"{eq1.emoji} {eq1.nombre}", eq1.calcular_media_equipo(),
+                        f"{eq4.emoji} {eq4.nombre}", eq4.calcular_media_equipo()
+                    )
+                    gan_sf2, res_sf2 = simular_partido_eliminatorio(
+                        f"{eq2.emoji} {eq2.nombre}", eq2.calcular_media_equipo(),
+                        f"{eq3.emoji} {eq3.nombre}", eq3.calcular_media_equipo()
+                    )
+                    
+                    obj_gan1 = next(e for e in top4 if f"{e.emoji} {e.nombre}" == gan_sf1)
+                    obj_gan2 = next(e for e in top4 if f"{e.emoji} {e.nombre}" == gan_sf2)
+                    
+                    gan_final, res_final = simular_partido_eliminatorio(
+                        f"{obj_gan1.emoji} {obj_gan1.nombre}", obj_gan1.calcular_media_equipo(),
+                        f"{obj_gan2.emoji} {obj_gan2.nombre}", obj_gan2.calcular_media_equipo()
+                    )
+                    
+                    obj_campeon = next(e for e in top4 if f"{e.emoji} {e.nombre}" == gan_final)
+                    st.session_state.campeon_copa = obj_campeon
+                    
+                    res_totales = [
+                        "### 🥊 Semifinales",
+                        f"- **Semifinal 1:** {res_sf1}",
+                        f"- **Semifinal 2:** {res_sf2}",
+                        "---",
+                        "### 🏆 Gran Final",
+                        f"- {res_final}",
+                        f"\n🎉 **¡{obj_campeon.emoji} {obj_campeon.nombre} es el CAMPEÓN de la Copa de España!**"
+                    ]
+                    
+                    st.session_state.historial_copas = res_totales
+                    guardar_partida()
+                    st.success("¡Copa de España simulada con éxito!")
+                    st.rerun()
+            else:
+                st.warning("Aún no ha terminado la Liga regular (debes llegar a la Jornada 11).")
+
+            st.markdown("---")
+            st.subheader("🌍 Mundial de Clubes (Campeón de Copa vs Rivales Internacionales IA)")
+            
+            if st.session_state.get("campeon_copa"):
+                champ = st.session_state.campeon_copa
+                st.write(f"Representante de la Liga: **{champ.emoji} {champ.nombre}** ({champ.calcular_media_equipo()} GRL)")
+                
+                if st.button("👑 Simular Mundial de Clubes"):
+                    PAISES_RIVALES = ["Japón 🇯🇵", "Brasil 🇧🇷", "Estados Unidos 🇺🇸", "Alemania 🇩🇪", "Inglaterra 🇬🇧", "Argentina 🇦🇷"]
+                    NOMBRES_RIVALES = ["Sakura Dragons", "Samba Stars FC", "Liberty Strikers", "Bavaria United", "London Titans", "Pampa Express"]
+                    
+                    rivales = []
+                    indices = random.sample(range(len(NOMBRES_RIVALES)), 3)
+                    for idx in indices:
+                        rivales.append({
+                            "nombre": f"🌐 {NOMBRES_RIVALES[idx]} ({PAISES_RIVALES[idx]})",
+                            "media": random.randint(75, 88)
+                        })
+                    
+                    r1, r2, r3 = rivales[0], rivales[1], rivales[2]
+                    
+                    gan_sf1, res_sf1 = simular_partido_eliminatorio(
+                        f"{champ.emoji} {champ.nombre}", champ.calcular_media_equipo(),
+                        r1["nombre"], r1["media"]
+                    )
+                    gan_sf2, res_sf2 = simular_partido_eliminatorio(
+                        r2["nombre"], r2["media"],
+                        r3["nombre"], r3["media"]
+                    )
+                    
+                    media_fin1 = champ.calcular_media_equipo() if gan_sf1 == f"{champ.emoji} {champ.nombre}" else next(r["media"] for r in rivales if r["nombre"] == gan_sf1)
+                    media_fin2 = champ.calcular_media_equipo() if gan_sf2 == f"{champ.emoji} {champ.nombre}" else next(r["media"] for r in rivales if r["nombre"] == gan_sf2)
+                    
+                    gan_mundial, res_final = simular_partido_eliminatorio(gan_sf1, media_fin1, gan_sf2, media_fin2)
+                    
+                    res_mundial = [
+                        "### 🥊 Semifinales Internacionales",
+                        f"- **Semifinal 1:** {res_sf1}",
+                        f"- **Semifinal 2:** {res_sf2}",
+                        "---",
+                        "### 👑 Gran Final del Mundial",
+                        f"- {res_final}",
+                        f"\n🌍 **¡{gan_mundial} se corona CAMPEÓN MUNDIAL DE CLUBES!**"
+                    ]
+                    
+                    st.session_state.historial_mundial = res_mundial
+                    guardar_partida()
+                    st.success("¡Mundial de Clubes simulado con éxito!")
+                    st.rerun()
+            else:
+                st.info("Para jugar el Mundial de Clubes primero se debe simular y obtener un Campeón en la Copa de España.")
+
+        with tab3:
             st.subheader("💵 Inyección o Descuento de Presupuesto")
             eq_destino = st.selectbox("Selecciona el equipo:", [e.nombre for e in st.session_state.equipos])
             monto_cambio = st.number_input("Monto en € (positivo para dar, negativo para quitar):", step=5_000_000)
@@ -585,7 +734,7 @@ elif menu == "⚡ Pro Admin":
                 st.success("¡Todos los presupuestos han sido restablecidos a 200.000.000 €!")
                 st.rerun()
 
-        with tab3:
+        with tab4:
             st.subheader("✏️ Edición de Puntos y Tabla")
             eq_edit = st.selectbox("Selecciona equipo a editar:", [e.nombre for e in st.session_state.equipos], key="edit_eq")
             equipo_obj = next(e for e in st.session_state.equipos if e.nombre == eq_edit)
