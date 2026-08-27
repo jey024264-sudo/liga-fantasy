@@ -5,21 +5,21 @@ import random
 import streamlit as st
 
 # ============================================================
-# LIGA MANAGER FANTASY — BETA 3.0
+# LIGA MANAGER FANTASY — BETA 3.1
 # ============================================================
 # 12 clubes | 11 jornadas | Copa de España | Mundial de Clubes
 # IA autónoma | Mercado | Subastas | Finanzas | Historial
 # ============================================================
 
 st.set_page_config(
-    page_title="Liga Manager Fantasy Beta 3.0",
+    page_title="Liga Manager Fantasy Beta 3.1",
     page_icon="⚽",
     layout="wide",
 )
 
 PRESUPUESTO_INICIAL = 200_000_000
 CLAVE_ADMIN = "1234"
-ARCHIVO_GUARDADO = "liga_estado_beta3.json"
+ARCHIVO_GUARDADO = "liga_estado_beta31.json"
 TOTAL_JORNADAS = 11
 
 # Premios oficiales
@@ -38,6 +38,10 @@ PREMIO_MUNDIAL = 70_000_000
 # MODELOS
 # ============================================================
 
+def calcular_salario(valor_base, grl):
+    """Salario anual: aumenta con el valor y el GRL del jugador."""
+    return max(250_000, int(valor_base * 0.015 + grl * 100_000))
+
 class Jugador:
     def __init__(self, nombre, posicion, grl, valor_base):
         self.nombre = nombre
@@ -45,7 +49,7 @@ class Jugador:
         self.grl = int(grl)
         self.valor_base = int(valor_base)
         self.clausula = int(valor_base * 2)
-        self.salario = int(valor_base * 0.05)
+        self.salario = calcular_salario(valor_base, self.grl)
 
     def to_dict(self):
         return {
@@ -66,7 +70,7 @@ class Jugador:
             d.get("valor_base", 60_000_000),
         )
         j.clausula = int(d.get("clausula", j.valor_base * 2))
-        j.salario = int(d.get("salario", j.valor_base * 0.05))
+        j.salario = int(d.get("salario", calcular_salario(j.valor_base, j.grl)))
         return j
 
 
@@ -772,15 +776,35 @@ def ejecutar_ia():
 # SUBASTA
 # ============================================================
 
-def ejecutar_bots_subasta():
-    if not st.session_state.subasta_activa:
+def iniciar_siguiente_subasta():
+    pool = st.session_state.get("mercado_pool", [])
+    if not pool:
+        st.session_state.subasta_actual = None
+        st.session_state.subasta_activa = False
+        st.session_state.hora_fin_subasta = None
         return
 
-    jugador = st.session_state.subasta_actual
+    idx = max(0, min(int(st.session_state.get("subasta_idx", 0)), len(pool) - 1))
+    st.session_state.subasta_idx = idx
+    st.session_state.subasta_actual = pool[idx]
+    st.session_state.puja_max = int(st.session_state.subasta_actual.valor_base)
+    st.session_state.lider_puja_eq = None
+    st.session_state.subasta_activa = True
+    st.session_state.hora_fin_subasta = datetime.datetime.now() + datetime.timedelta(hours=1)
+
+
+def ejecutar_bots_subasta():
+    if not st.session_state.get("subasta_activa", False):
+        return
+
+    jugador = st.session_state.get("subasta_actual")
+    if jugador is None:
+        return
 
     for bot in st.session_state.equipos:
         if bot.es_humano:
             continue
+
         margen = {
             "Galáctico": 1.60,
             "Agresivo": 1.35,
@@ -788,38 +812,38 @@ def ejecutar_bots_subasta():
             "Estratega": 1.15,
             "Jóvenes": 1.05,
             "Equilibrado": 1.20,
-        }.get(getattr(bot, 'estilo_ia', 'Equilibrado'), 1.20)
+        }.get(getattr(bot, "estilo_ia", "Equilibrado"), 1.20)
 
-        if bot.presupuesto > st.session_state.puja_max + 2_000_000:
-            if random.random() < 0.45:
-                nueva = st.session_state.puja_max + random.randint(1, 6) * 1_000_000
-                maximo = int(jugador.valor_base * margen)
-                if nueva <= bot.presupuesto and nueva <= maximo:
-                    st.session_state.puja_max = nueva
-                    st.session_state.lider_puja_eq = bot
+        if bot.presupuesto > st.session_state.puja_max + 2_000_000 and random.random() < 0.30:
+            nueva = st.session_state.puja_max + random.randint(1, 6) * 1_000_000
+            maximo = int(jugador.valor_base * margen)
+            if nueva <= bot.presupuesto and nueva <= maximo:
+                st.session_state.puja_max = nueva
+                st.session_state.lider_puja_eq = bot
 
 
-def cerrar_subasta():
-    if not st.session_state.lider_puja_eq:
-        st.session_state.subasta_activa = False
+def cerrar_subasta(automatico=False):
+    jugador = st.session_state.get("subasta_actual")
+    if jugador is None:
         return
 
-    ganador = st.session_state.lider_puja_eq
-    jugador = st.session_state.subasta_actual
+    ganador = st.session_state.get("lider_puja_eq")
 
-    if ganador.presupuesto >= st.session_state.puja_max:
+    if ganador is not None and ganador.presupuesto >= st.session_state.puja_max:
         ganador.presupuesto -= st.session_state.puja_max
         ganador.gastos += st.session_state.puja_max
         ganador.plantilla.append(jugador)
         registrar_finanza(
-            ganador,
-            "Gasto",
-            st.session_state.puja_max,
+            ganador, "Gasto", st.session_state.puja_max,
             f"Subasta de {jugador.nombre}",
         )
         registrar_evento(
             f"🔥 {ganador.nombre} ganó la subasta de {jugador.nombre} "
             f"por {dinero(st.session_state.puja_max)}."
+        )
+    else:
+        registrar_evento(
+            f"⏱️ Terminó la subasta de {jugador.nombre} sin ganador."
         )
 
     st.session_state.mercado_pool.pop(st.session_state.subasta_idx)
@@ -829,16 +853,158 @@ def cerrar_subasta():
             st.session_state.subasta_idx,
             len(st.session_state.mercado_pool) - 1,
         )
-        st.session_state.subasta_actual = (
-            st.session_state.mercado_pool[st.session_state.subasta_idx]
-        )
-        st.session_state.puja_max = st.session_state.subasta_actual.valor_base
-        st.session_state.lider_puja_eq = None
-        st.session_state.subasta_activa = False
-        st.session_state.hora_fin_subasta = None
+        iniciar_siguiente_subasta()
     else:
         st.session_state.subasta_actual = None
         st.session_state.subasta_activa = False
+        st.session_state.hora_fin_subasta = None
+
+    autosave_partida()
+
+
+def procesar_reloj_subasta():
+    """El bot árbitro cierra la subasta al llegar a 0 y abre el siguiente jugador."""
+    if not st.session_state.get("subasta_activa", False):
+        return
+
+    fin = st.session_state.get("hora_fin_subasta")
+    if fin and datetime.datetime.now() >= fin:
+        ejecutar_bots_subasta()
+        cerrar_subasta(automatico=True)
+    else:
+        # Las IAs pueden reaccionar mientras la subasta está abierta.
+        ejecutar_bots_subasta()
+
+
+def pujar_equipo(eq, monto):
+    if not st.session_state.get("subasta_activa", False):
+        return False, "La subasta ya terminó."
+    if monto <= st.session_state.puja_max:
+        return False, "La puja debe superar la actual."
+    if monto > eq.presupuesto:
+        return False, "No tienes presupuesto suficiente."
+
+    st.session_state.puja_max = int(monto)
+    st.session_state.lider_puja_eq = eq
+    autosave_partida()
+    return True, "¡Puja registrada!"
+
+
+# ============================================================
+# MERCADO NEGRO
+# ============================================================
+
+def reiniciar_limite_lava_si_corresponde():
+    ahora = datetime.datetime.now()
+    ventana = st.session_state.get("ventana_ventas_lava")
+    if ventana is None or ahora >= ventana + datetime.timedelta(hours=1):
+        st.session_state.ventas_lava_hora = {}
+        st.session_state.ventana_ventas_lava = ahora.replace(
+            minute=0, second=0, microsecond=0
+        )
+
+
+def vender_al_mercado_negro(eq, jugador):
+    reiniciar_limite_lava_si_corresponde()
+    usados = int(st.session_state.ventas_lava_hora.get(str(eq.id_club), 0))
+    if usados >= 4:
+        return False, "Has alcanzado el límite de 4 ventas por hora."
+
+    if jugador not in eq.plantilla:
+        return False, "Ese jugador ya no pertenece al club."
+
+    precio = int(jugador.valor_base * 0.90)
+    eq.plantilla.remove(jugador)
+    eq.presupuesto += precio
+    eq.ingresos += precio
+
+    st.session_state.ventas_lava_hora[str(eq.id_club)] = usados + 1
+    st.session_state.historial_mercado_negro.insert(0, {
+        "fecha": datetime.datetime.now().strftime("%d/%m/%Y %H:%M"),
+        "club": eq.nombre,
+        "jugador": jugador.nombre,
+        "valor": int(jugador.valor_base),
+        "cobrado": precio,
+    })
+    st.session_state.historial_mercado_negro = st.session_state.historial_mercado_negro[:100]
+
+    registrar_finanza(eq, "Ingreso", precio, f"Mercado negro: {jugador.nombre}")
+    registrar_evento(
+        f"🌋 {eq.nombre} vendió a {jugador.nombre} por "
+        f"{dinero(precio)} (90% de su valor)."
+    )
+    autosave_partida()
+    return True, f"🌋 Venta realizada por {dinero(precio)}."
+
+
+def cobrar_salarios_temporada():
+    total = 0
+    for eq in st.session_state.equipos:
+        salarios = eq.calcular_salarios_totales()
+        eq.presupuesto -= salarios
+        eq.gastos += salarios
+        registrar_finanza(eq, "Gasto", salarios, "Salarios de la temporada")
+        total += salarios
+    return total
+
+
+def iniciar_nueva_temporada():
+    """Cierra la temporada actual, conserva plantillas/títulos y cobra salarios."""
+    if st.session_state.jornada_actual <= TOTAL_JORNADAS:
+        return False, "La temporada actual todavía no ha terminado."
+
+    cobrar_salarios_temporada()
+
+    for eq in st.session_state.equipos:
+        eq.historial_temporadas.append({
+            "temporada": st.session_state.get("temporada", 1),
+            "posicion": next(
+                (i for i, x in enumerate(clasificacion(), 1) if x.id_club == eq.id_club),
+                None,
+            ),
+            "puntos": eq.puntos,
+        })
+        eq.puntos = eq.pj = eq.pg = eq.pe = eq.pp = 0
+        eq.gf = eq.gc = 0
+        eq.premios = eq.ingresos = eq.gastos = 0
+
+    st.session_state.temporada = int(st.session_state.get("temporada", 1)) + 1
+    st.session_state.jornada_actual = 1
+    st.session_state.calendario = generar_calendario_11()
+    st.session_state.historial_resultados = []
+    st.session_state.historial_copas = []
+    st.session_state.historial_mundial = []
+    st.session_state.premios_liga = []
+    st.session_state.premios_liga_repartidos = False
+    st.session_state.copa = None
+    st.session_state.mundial = None
+    st.session_state.campeon_copa = None
+    st.session_state.equipos_mundial = []
+    st.session_state.copa_semis_jugadas = False
+    st.session_state.copa_final_jugada = False
+    st.session_state.mundial_semis_jugadas = False
+    st.session_state.mundial_final_jugada = False
+    st.session_state.ofertas_fichaje = []
+
+    # Nueva tanda de subastas.
+    st.session_state.mercado_pool = [
+        generar_jugador_aleatorio(80, 92) for _ in range(10)
+    ]
+    st.session_state.subasta_idx = 0
+    iniciar_siguiente_subasta()
+
+    st.session_state.ventas_lava_hora = {}
+    st.session_state.ventana_ventas_lava = datetime.datetime.now().replace(
+        minute=0, second=0, microsecond=0
+    )
+    st.session_state.historial_mercado_negro = []
+
+    registrar_evento(
+        f"🏁 Comenzó la temporada {st.session_state.temporada}. "
+        f"Salarios cobrados automáticamente."
+    )
+    autosave_partida()
+    return True, "Nueva temporada iniciada."
 
 
 # ============================================================
@@ -854,7 +1020,8 @@ def autosave_partida():
     lider_nombre = lider.nombre if hasattr(lider, "nombre") else lider
 
     data = {
-        "version": "3.0",
+        "version": "3.1",
+        "temporada": st.session_state.get("temporada", 1),
         "jornada_actual": st.session_state.jornada_actual,
         "calendario": st.session_state.calendario,
         "historial_resultados": st.session_state.historial_resultados,
@@ -886,6 +1053,12 @@ def autosave_partida():
         "mercado_pool": [
             j.to_dict() for j in st.session_state.get("mercado_pool", [])
         ],
+        "ventas_lava_hora": st.session_state.get("ventas_lava_hora", {}),
+        "ventana_ventas_lava": (
+            st.session_state.ventana_ventas_lava.isoformat()
+            if st.session_state.get("ventana_ventas_lava") else None
+        ),
+        "historial_mercado_negro": st.session_state.get("historial_mercado_negro", []),
     }
 
     with open(ARCHIVO_GUARDADO, "w", encoding="utf-8") as f:
@@ -900,6 +1073,7 @@ def cargar_partida():
         with open(ARCHIVO_GUARDADO, "r", encoding="utf-8") as f:
             data = json.load(f)
 
+        st.session_state.temporada = int(data.get("temporada", 1))
         st.session_state.jornada_actual = int(data.get("jornada_actual", 1))
         st.session_state.calendario = data.get("calendario", [])
         st.session_state.historial_resultados = data.get("historial_resultados", [])
@@ -968,6 +1142,13 @@ def cargar_partida():
         st.session_state.hora_fin_subasta = (
             datetime.datetime.fromisoformat(hora) if hora else None
         )
+        st.session_state.ventas_lava_hora = data.get("ventas_lava_hora", {})
+        ventana_lava = data.get("ventana_ventas_lava")
+        st.session_state.ventana_ventas_lava = (
+            datetime.datetime.fromisoformat(ventana_lava)
+            if ventana_lava else datetime.datetime.now().replace(minute=0, second=0, microsecond=0)
+        )
+        st.session_state.historial_mercado_negro = data.get("historial_mercado_negro", [])
 
         camp_nom = data.get("campeon_copa")
         st.session_state.campeon_copa = camp_nom
@@ -1011,6 +1192,7 @@ def inicializar_nueva_partida():
         clubes.append(eq)
 
     st.session_state.equipos = clubes
+    st.session_state.temporada = 1
     st.session_state.jornada_actual = 1
     st.session_state.calendario = generar_calendario_11()
     st.session_state.historial_resultados = []
@@ -1050,10 +1232,13 @@ def inicializar_nueva_partida():
     st.session_state.puja_max = st.session_state.subasta_actual.valor_base
     st.session_state.lider_puja_eq = None
     st.session_state.subasta_activa = False
-    st.session_state.hora_fin_subasta = None
+    st.session_state.hora_fin_subasta = datetime.datetime.now() + datetime.timedelta(hours=1)
+    st.session_state.subasta_activa = True
+    st.session_state.ventas_lava_hora = {}
+    st.session_state.ventana_ventas_lava = datetime.datetime.now().replace(minute=0, second=0, microsecond=0)
+    st.session_state.historial_mercado_negro = []
 
     st.session_state.liga_inicializada = True
-    registrar_evento("🚀 Liga Manager Fantasy Beta 3.0 iniciada.")
 
 
 # ============================================================
@@ -1061,10 +1246,10 @@ def inicializar_nueva_partida():
 # ============================================================
 
 # ============================================================
-# AUTOCORRECCIÓN / MIGRACIÓN BETA 3.0
+# AUTOCORRECCIÓN / MIGRACIÓN BETA 3.1
 # ============================================================
-def reparar_estado_beta3():
-    """Normaliza partidas de Beta 3.0 para evitar AttributeError por estados antiguos."""
+def reparar_estado_beta31():
+    """Normaliza partidas de Beta 3.1 para evitar AttributeError por estados antiguos."""
     defaults = {
         "copa": None,
         "mundial": None,
@@ -1088,6 +1273,10 @@ def reparar_estado_beta3():
         "lider_puja_eq": None,
         "subasta_activa": False,
         "hora_fin_subasta": None,
+        "temporada": 1,
+        "ventas_lava_hora": {},
+        "ventana_ventas_lava": datetime.datetime.now().replace(minute=0, second=0, microsecond=0),
+        "historial_mercado_negro": [],
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -1099,6 +1288,8 @@ def reparar_estado_beta3():
         equipos = []
 
     for eq in equipos:
+        for jugador in getattr(eq, "plantilla", []):
+            jugador.salario = calcular_salario(jugador.valor_base, jugador.grl)
         if not hasattr(eq, "es_humano"):
             eq.es_humano = False
         if not hasattr(eq, "estilo_ia") or eq.estilo_ia not in ESTILOS_IA:
@@ -1135,7 +1326,9 @@ if "liga_inicializada" not in st.session_state:
         inicializar_nueva_partida()
         autosave_partida()
 
-reparar_estado_beta3()
+reparar_estado_beta31()
+procesar_reloj_subasta()
+reiniciar_limite_lava_si_corresponde()
 
 if "es_admin_autenticado" not in st.session_state:
     st.session_state.es_admin_autenticado = False
@@ -1148,7 +1341,7 @@ if "es_solo_admin" not in st.session_state:
 # ============================================================
 
 if "mi_equipo" not in st.session_state and not st.session_state.es_solo_admin:
-    st.title("🎮 Liga Manager Fantasy — Beta 3.0")
+    st.title("🎮 Liga Manager Fantasy — Beta 3.1")
     st.caption("12 clubes · IA · Copa de España · Mundial de Clubes")
 
     col_jugador, col_admin = st.columns(2)
@@ -1225,11 +1418,12 @@ if not st.session_state.es_solo_admin and "mi_equipo" in st.session_state:
 if st.session_state.es_solo_admin:
     st.sidebar.title("👑 Administrador")
     st.sidebar.write("Rol: **Comisionado Supremo**")
+    st.sidebar.write(f"Temporada: **{st.session_state.get('temporada', 1)}**")
 else:
     mi_eq = st.session_state.mi_equipo
     st.sidebar.title(f"👤 {mi_eq.presidente}")
     st.sidebar.write(
-        f"Club Nº {mi_eq.id_club}: **{mi_eq.emoji} {mi_eq.nombre}**"
+        f"Temporada {st.session_state.get('temporada', 1)} · Club Nº {mi_eq.id_club}: **{mi_eq.emoji} {mi_eq.nombre}**"
     )
     st.sidebar.write(f"Presupuesto: **{dinero(mi_eq.presupuesto)}**")
     st.sidebar.write(
@@ -1253,6 +1447,7 @@ opciones_menu = [
     "📊 Clasificación",
     "📋 Mi Plantilla",
     "🔥 Subastas",
+    "🌋 Mercado Negro",
     "🤝 Mercado & Cláusulas",
     "🏆 Competiciones",
     "⚽ Resultados",
@@ -1271,7 +1466,7 @@ menu = st.sidebar.radio("Navegación", opciones_menu)
 # ============================================================
 
 if menu == "🏠 Inicio":
-    st.title("⚽ Liga Manager Fantasy — BETA 3.0")
+    st.title("⚽ Liga Manager Fantasy — BETA 3.1")
     st.subheader("Tu carrera de manager empieza aquí.")
 
     tabla = clasificacion()
@@ -1474,68 +1669,116 @@ elif menu == "📋 Mi Plantilla":
 # ============================================================
 
 elif menu == "🔥 Subastas":
-    st.header("🔥 Subasta de Jugadores")
+    st.header("🔥 Subastas — 1 jugador por hora")
+    st.caption("⏱️ El árbitro IA cierra automáticamente cada subasta al terminar la hora.")
 
-    jugador = st.session_state.subasta_actual
+    jugador = st.session_state.get("subasta_actual")
+    fin = st.session_state.get("hora_fin_subasta")
 
     if jugador is None:
         st.success("🎉 No quedan jugadores en el mercado de subastas.")
     else:
-        st.write(
-            f"### {jugador.nombre} "
-            f"· {jugador.posicion} · ⭐ {jugador.grl}"
-        )
-        st.write(f"Valor base: **{dinero(jugador.valor_base)}**")
+        if fin:
+            restantes = max(0, int((fin - datetime.datetime.now()).total_seconds()))
+            horas, rem = divmod(restantes, 3600)
+            minutos, segundos = divmod(rem, 60)
+            st.metric("⏳ Tiempo restante", f"{horas:02d}:{minutos:02d}:{segundos:02d}")
 
-        if st.button("🤖 Hacer actuar a las IAs"):
-            ejecutar_bots_subasta()
-            autosave_partida()
-            st.rerun()
+        st.subheader(f"{jugador.nombre} · {jugador.posicion} · ⭐ {jugador.grl}")
+        c1,c2,c3=st.columns(3)
+        c1.metric("Valor base", dinero(jugador.valor_base))
+        c2.metric("Puja actual", dinero(st.session_state.puja_max))
+        c3.metric("Estado", "🔥 ABIERTA" if st.session_state.subasta_activa else "⏸️ CERRADA")
 
-        if st.session_state.lider_puja_eq:
+        if st.session_state.get("lider_puja_eq"):
             st.info(
                 f"👑 Líder: **{st.session_state.lider_puja_eq.nombre}** · "
                 f"{dinero(st.session_state.puja_max)}"
             )
         else:
-            st.info("Nadie lidera la subasta.")
+            st.info("Nadie lidera todavía.")
 
         if not st.session_state.es_solo_admin:
             mi_eq = st.session_state.mi_equipo
             monto = st.number_input(
-                "Tu oferta",
+                "Tu oferta (€)",
                 min_value=int(st.session_state.puja_max + 1_000_000),
                 max_value=int(max(mi_eq.presupuesto, st.session_state.puja_max + 1_000_000)),
                 value=int(st.session_state.puja_max + 1_000_000),
                 step=1_000_000,
+                key="puja_31",
             )
-
-            if st.button("💰 Pujar"):
-                if monto <= mi_eq.presupuesto:
-                    st.session_state.puja_max = monto
-                    st.session_state.lider_puja_eq = mi_eq
-                    autosave_partida()
-                    st.success("¡Puja registrada!")
-                    st.rerun()
+            if st.button("💰 PUJAR", type="primary"):
+                ok,msg=pujar_equipo(mi_eq,int(monto))
+                if ok:
+                    st.success(msg); st.rerun()
                 else:
-                    st.error("No tienes presupuesto suficiente.")
+                    st.error(msg)
 
-        # En Beta 3.0 solo el Administrador Supremo puede cerrar manualmente una subasta.
-        # La subasta automática por tiempo se implementará en Beta 3.1.
         if st.session_state.get("es_admin_autenticado", False):
-            if st.button("🔨 Cerrar subasta", type="primary"):
+            st.markdown("---")
+            st.caption("🔐 Control Supremo")
+            if st.button("🛑 Cerrar subasta ahora", type="secondary"):
                 cerrar_subasta()
-                autosave_partida()
                 st.success("Subasta cerrada por el Administrador Supremo.")
                 st.rerun()
         else:
-            st.info("🔐 Solo el Administrador Supremo puede cerrar manualmente la subasta en Beta 3.0.")
+            st.caption("🔒 El cierre manual está reservado al Administrador Supremo; el cierre normal lo realiza automáticamente el árbitro IA.")
 
 
 # ============================================================
 # MERCADO & CLÁUSULAS
 # ============================================================
 
+elif menu == "🌋 Mercado Negro":
+    st.header("🌋 Mercado Negro")
+    st.caption("Vende jugadores al mercado negro por el 90% de su valor. Máximo: 4 jugadores por club y hora.")
+
+    if st.session_state.es_solo_admin:
+        st.info("El Mercado Negro se gestiona desde la vista de cada club.")
+    else:
+        mi_eq = st.session_state.mi_equipo
+        reiniciar_limite_lava_si_corresponde()
+        usados = int(st.session_state.ventas_lava_hora.get(str(mi_eq.id_club), 0))
+        restantes = max(0, 4 - usados)
+
+        c1,c2,c3=st.columns(3)
+        c1.metric("Ventas usadas", usados)
+        c2.metric("Ventas disponibles", restantes)
+        c3.metric("Ventana", "1 hora")
+
+        if mi_eq.plantilla and restantes > 0:
+            etiquetas=[f"{i} · {j.nombre} · GRL {j.grl} · {dinero(j.valor_base)}" for i,j in enumerate(mi_eq.plantilla)]
+            sel=st.selectbox("Jugador que irá al mercado negro", etiquetas)
+            jugador=mi_eq.plantilla[etiquetas.index(sel)]
+            cobro=int(jugador.valor_base*0.90)
+
+            st.warning(
+                f"🌋 Se elimina de tu plantilla y recibes **{dinero(cobro)}** "
+                f"(90% de {dinero(jugador.valor_base)})."
+            )
+            if st.button("🌋 VENDER AL MERCADO NEGRO", type="primary"):
+                ok,msg=vender_al_mercado_negro(mi_eq,jugador)
+                if ok:
+                    st.success(msg); st.rerun()
+                else:
+                    st.error(msg)
+        elif not mi_eq.plantilla:
+            st.info("No tienes jugadores para vender.")
+        else:
+            st.warning("Has alcanzado las 4 ventas de esta hora.")
+
+        st.markdown("---")
+        st.subheader("📜 Últimas operaciones")
+        operaciones=[
+            x for x in st.session_state.get("historial_mercado_negro",[])
+            if x["club"]==mi_eq.nombre
+        ][:20]
+        if operaciones:
+            for op in operaciones:
+                st.write(f"🌋 {op['fecha']} · {op['jugador']} · +{dinero(op['cobrado'])}")
+        else:
+            st.info("Todavía no has realizado ventas.")
 elif menu == "🤝 Mercado & Cláusulas":
     st.header("🤝 Mercado de Fichajes")
 
@@ -1879,7 +2122,8 @@ elif menu == "📰 Noticias":
 # ============================================================
 
 elif menu == "⚡ Pro Admin":
-    st.header("⚡ Panel Pro Admin — Beta 3.0")
+    st.header("⚡ Panel Pro Admin — Beta 3.1")
+    st.caption("👑 Centro de control: humanos, bots, liga, torneos, finanzas y seguridad.")
 
     if not st.session_state.es_admin_autenticado:
         pwd = st.text_input(
@@ -1959,6 +2203,17 @@ elif menu == "⚡ Pro Admin":
                         f"{p['pos']}º · {p['club']} · "
                         f"**{dinero(p['premio'])}**"
                     )
+
+                st.markdown("---")
+                st.subheader("🔄 Nueva temporada")
+                st.caption("Al iniciar la nueva temporada se cobran automáticamente los salarios de todas las plantillas.")
+                if st.button("🚀 INICIAR SIGUIENTE TEMPORADA", type="primary"):
+                    ok, msg = iniciar_nueva_temporada()
+                    if ok:
+                        st.success(msg)
+                        st.rerun()
+                    else:
+                        st.warning(msg)
 
         # ----------------------------------------------------
         # TAB 2 — TORNEOS
@@ -2248,7 +2503,7 @@ elif menu == "⚡ Pro Admin":
                     jugador.grl = int(grl_nuevo)
                     jugador.valor_base = int(valor_nuevo)
                     jugador.clausula = int(clausula_nueva)
-                    jugador.salario = int(salario_nuevo)
+                    jugador.salario = calcular_salario(jugador.valor_base, jugador.grl)
                     autosave_partida()
                     st.success("Jugador actualizado.")
                     st.rerun()
@@ -2259,9 +2514,7 @@ elif menu == "⚡ Pro Admin":
 # ============================================================
 
 try:
-    reparar_estado_beta3()
+    reparar_estado_beta31()
     autosave_partida()
 except Exception:
     pass
-
-
