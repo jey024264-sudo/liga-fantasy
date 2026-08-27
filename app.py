@@ -215,7 +215,6 @@ def cargar_partida():
 
       camp_nom = data.get("campeon_copa")
       if camp_nom:
-        # Aseguramos buscar tanto por nombre exacto como por coincidencia parcial
         st.session_state.campeon_copa = next(
             (e for e in st.session_state.equipos if e.nombre in str(camp_nom)),
             None,
@@ -952,7 +951,6 @@ elif menu == "⚡ Pro Admin":
 
       if st.session_state.get("campeon_copa"):
         champ = st.session_state.campeon_copa
-        # Asegurarnos de recuperar el objeto Equipo si por alguna razón está guardado como texto
         if isinstance(champ, str):
           champ = next(
               (e for e in st.session_state.equipos if e.nombre == champ), None
@@ -1039,6 +1037,30 @@ elif menu == "⚡ Pro Admin":
             "Para jugar el Mundial de Clubes primero se debe simular y obtener"
             " un Campeón en la Copa de España."
         )
+
+      # --- NUEVO BOTÓN: INICIAR SIGUIENTE TEMPORADA ---
+      st.markdown("---")
+      st.subheader("🔄 Gestión de Temporada")
+      if st.button("🌟 Iniciar Siguiente Temporada"):
+        st.session_state.jornada_actual = 1
+        st.session_state.historial_resultados = []
+        st.session_state.historial_copas = []
+        st.session_state.historial_mundial = []
+        st.session_state.campeon_copa = None
+        for eq in st.session_state.equipos:
+          eq.puntos = 0
+          eq.pj = 0
+          eq.pg = 0
+          eq.pe = 0
+          eq.pp = 0
+          eq.gf = 0
+          eq.gc = 0
+        guardar_partida()
+        st.success(
+            "¡Se ha iniciado una nueva temporada! Puntos, clasificación y"
+            " copas reseteados. ¡Las plantillas y presupuestos se mantienen!"
+        )
+        st.rerun()
 
     with tab3:
       st.subheader("💵 Inyección o Descuento de Presupuesto")
