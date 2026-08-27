@@ -6,14 +6,14 @@ import time
 import streamlit as st
 
 st.set_page_config(
-    page_title="Liga Manager Fantasy Pro - Modo Automático Avanzado",
+    page_title="Liga Manager Fantasy Pro - Todo Incluido",
     page_icon="⚽",
     layout="wide",
 )
 
 PRESUPUESTO_INICIAL = 200_000_000
 CLAVE_ADMIN = "1234"
-ARCHIVO_GUARDADO = "liga_estado_pro_bots.json"
+ARCHIVO_GUARDADO = "liga_estado_total_pro.json"
 
 
 class Jugador:
@@ -69,9 +69,6 @@ class Equipo:
   def dg(self):
     return self.gf - self.gc
 
-  def calcular_salarios_totales(self):
-    return sum(j.salario for j in self.plantilla)
-
   def obtener_titulares_validos(self):
     key_titulares = f"titulares_{self.id_club}"
     if key_titulares in st.session_state and st.session_state[key_titulares]:
@@ -79,6 +76,7 @@ class Equipo:
       titulares = [j for j in self.plantilla if j.nombre in nombres_titulares]
       if len(titulares) == 11:
         return titulares
+    # Selección automática por defecto si no hay 11 elegidos
     mejores = []
     for pos in [
         "POR",
@@ -156,7 +154,7 @@ class Equipo:
     return eq
 
 
-# --- MOTORES DE SIMULACIÓN ---
+# --- MOTORES DE SIMULACIÓN Y GUARDADO ---
 def simular_jornada_liga():
   if st.session_state.jornada_actual > 11:
     return False
@@ -392,6 +390,17 @@ if "liga_inicializada" not in st.session_state:
       eq.plantilla = generar_plantilla_base()
       clubes.append(eq)
 
+    # Mercado inicial de jugadores libres
+    mercado_inicial = [
+        Jugador(
+            f"{random.choice(NOMBRES)} {random.choice(APELLIDOS)}",
+            random.choice(POSICIONES),
+            random.randint(65, 80),
+            random.randint(65, 80) * 120_000,
+        )
+        for _ in range(10)
+    ]
+
     st.session_state.equipos = clubes
     st.session_state.jornada_actual = 1
     st.session_state.historial_resultados = []
@@ -402,7 +411,7 @@ if "liga_inicializada" not in st.session_state:
     st.session_state.fase_copa_jugada = False
     st.session_state.fase_mundial_jugada = False
     st.session_state.modo_auto_activo = False
-    st.session_state.mercado_pool = []
+    st.session_state.mercado_pool = mercado_inicial
     st.session_state.liga_inicializada = True
     guardar_partida()
 
@@ -515,10 +524,11 @@ opciones_menu = [
 ]
 if not st.session_state.es_solo_admin:
   opciones_menu.insert(1, "📋 Mi Plantilla")
+  opciones_menu.insert(2, "🛒 Mercado de Fichajes")
 
 menu = st.sidebar.radio("Navegación", opciones_menu)
 
-# --- SECCIONES DE LA APP ---
+# --- SECCIONES DE LA APLICACIÓN ---
 
 if menu == "📊 Clasificación":
   st.header("🏆 Tabla de Posiciones")
@@ -561,10 +571,9 @@ elif menu == "⚡ Pro Admin & Automatización":
   else:
     st.subheader("🎮 Control de Interruptor Automático")
     st.write(
-        "Aquí puedes **activar** o **desactivar** el bot automático general."
-        " Cuando está activado, el sistema simulará los partidos de liga cada 2"
-        " minutos, y al terminar, la Copa de España y el Mundial de Clubes cada"
-        " 10 minutos."
+        "Activa o desactiva el bot automático. Los partidos de liga se"
+        " simularán cada **2 minutos** y los eventos de Copa y Mundial cada"
+        " **10 minutos**."
     )
 
     col_btn1, col_btn2 = st.columns(2)
@@ -573,7 +582,7 @@ elif menu == "⚡ Pro Admin & Automatización":
     ):
       st.session_state.modo_auto_activo = True
       guardar_partida()
-      st.success("¡Modo Automático ACTIVADO con éxito!")
+      st.success("¡Modo Automático ACTIVADO!")
       st.rerun()
 
     if col_btn2.button(
@@ -611,22 +620,21 @@ elif menu == "⚡ Pro Admin & Automatización":
       else:
         st.warning("Debes finalizar la Copa de España primero.")
 
-    # Ejecución automática segura con recarga por bucle de Streamlit
     if st.session_state.get("modo_auto_activo", False):
       st.info(
-          "🤖 **Bot Pro Admin en ejecución autónoma...** La página se"
-          " actualizará automáticamente según el temporizador."
+          "🤖 **Bot Pro Admin en ejecución autónoma...** La aplicación"
+          " avanzará automáticamente según el tiempo programado."
       )
       if st.session_state.jornada_actual <= 11:
-        time.sleep(120)  # 2 minutos para partidos de liga
+        time.sleep(120)  # 2 minutos
         simular_jornada_liga()
         st.rerun()
       elif not st.session_state.fase_copa_jugada:
-        time.sleep(600)  # 10 minutos para Copa de España
+        time.sleep(600)  # 10 minutos
         simular_copa_espana_fase()
         st.rerun()
       elif not st.session_state.fase_mundial_jugada:
-        time.sleep(600)  # 10 minutos para Mundial de Clubes
+        time.sleep(600)  # 10 minutos
         simular_mundial_clubes_fase()
         st.rerun()
       else:
@@ -638,6 +646,31 @@ elif menu == "📋 Mi Plantilla":
   mi_eq = st.session_state.mi_equipo
   st.header(f"📋 Plantilla de {mi_eq.nombre}")
   st.metric("Presupuesto Actual", f"{mi_eq.presupuesto:,} €")
+
+  st.subheader("Configurar Alineación Titular (11 Jugadores)")
+  nombres_plantilla = [j.nombre for j in mi_eq.plantilla]
+  key_titulares = f"titulares_{mi_eq.id_club}"
+
+  sugeridos = [
+      j.nombre for j in mi_eq.obtener_titulares_validos()
+  ]  # Default top 11
+  titulares_elegidos = st.multiselect(
+      "Selecciona exactamente 11 jugadores titulares:",
+      options=nombres_plantilla,
+      default=sugeridos[: min(11, len(sugeridos))],
+  )
+
+  if len(titulares_elegidos) == 11:
+    st.session_state[key_titulares] = titulares_elegidos
+    st.success("✅ ¡Alineación válida guardada!")
+  else:
+    st.warning(
+        f"Has seleccionado {len(titulares_elegidos)}/11 jugadores. Deben ser"
+        " exactamente 11 para competir al 100%."
+    )
+
+  st.markdown("---")
+  st.subheader("Jugadores en Plantilla")
   datos_plantilla = [
       {
           "Jugador": j.nombre,
@@ -649,6 +682,31 @@ elif menu == "📋 Mi Plantilla":
       for j in mi_eq.plantilla
   ]
   st.dataframe(datos_plantilla, use_container_width=True, hide_index=True)
+
+elif menu == "🛒 Mercado de Fichajes":
+  mi_eq = st.session_state.mi_equipo
+  st.header("🛒 Mercado de Libres")
+  st.metric("Tu Presupuesto", f"{mi_eq.presupuesto:,} €")
+
+  if not st.session_state.get("mercado_pool"):
+    st.info("El mercado está vació por ahora.")
+  else:
+    for idx, jug in enumerate(st.session_state.mercado_pool):
+      col1, col2, col3 = st.columns([3, 2, 1])
+      col1.write(
+          f"**{jug.nombre}** ({jug.posicion}) - Media: **{jug.grl}** GRL"
+      )
+      col2.write(f"Valor: **{jug.valor_base:,} €**")
+      if col3.button("Fichar", key=f"fichar_{idx}"):
+        if mi_eq.presupuesto >= jug.valor_base:
+          mi_eq.presupuesto -= jug.valor_base
+          mi_eq.plantilla.append(jug)
+          st.session_state.mercado_pool.pop(idx)
+          guardar_partida()
+          st.success(f"¡Has fichado a {jug.nombre}!")
+          st.rerun()
+        else:
+          st.error("No tienes suficiente presupuesto.")
 
 elif menu == "⚽ Resultados y Copas":
   st.header("⚽ Historial de Partidos, Copa y Mundial")
