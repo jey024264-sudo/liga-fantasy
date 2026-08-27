@@ -49,7 +49,16 @@ class Equipo:
     def calcular_media_equipo(self):
         if not self.plantilla:
             return 60
-        return sum(j.grl for j in self.plantilla) // len(self.plantilla)
+        # Si hay 11 titulares guardados en sesión, calcula la media sobre ellos
+        key_titulares = f"titulares_{self.id_club}"
+        if key_titulares in st.session_state and st.session_state[key_titulares]:
+            titulares = [j for j in self.plantilla if j.nombre in st.session_state[key_titulares]]
+            if titulares:
+                return sum(j.grl for j in titulares) // len(titulares)
+        
+        # Si no hay titulares seleccionados, toma los mejores 11
+        mejores = sorted(self.plantilla, key=lambda x: x.grl, reverse=True)[:11]
+        return sum(j.grl for j in mejores) // len(mejores)
 
     def to_dict(self):
         return {
@@ -276,12 +285,95 @@ if menu == "📊 Clasificación":
         })
     st.table(datos)
 
-# 2. MI PLANTILLA
+# 2. MI PLANTILLA Y GESTIÓN TÁCTICA
 elif menu == "📋 Mi Plantilla":
     mi_eq = st.session_state.mi_equipo
-    st.header(f"Plantilla de {mi_eq.nombre}")
-    p_datos = [{"Nombre": j.nombre, "Posición": j.posicion, "Media GRL": j.grl, "Valor": f"{j.valor_base:,} €"} for j in mi_eq.plantilla]
-    st.table(p_datos)
+    st.header(f"🛡️ Gestión Táctica y Plantilla - {mi_eq.nombre}")
+
+    TACTICAS = {
+        "4-3-3": ["POR", "DEF", "DEF", "DEF", "DEF", "MED", "MED", "MED", "DEL", "DEL", "DEL"],
+        "4-4-2": ["POR", "DEF", "DEF", "DEF", "DEF", "MED", "MED", "MED", "MED", "DEL", "DEL"],
+        "3-5-2": ["POR", "DEF", "DEF", "DEF", "MED", "MED", "MED", "MED", "MED", "DEL", "DEL"],
+        "5-3-2": ["POR", "DEF", "DEF", "DEF", "DEF", "DEF", "MED", "MED", "MED", "DEL", "DEL"]
+    }
+
+    if f"esquema_{mi_eq.id_club}" not in st.session_state:
+        st.session_state[f"esquema_{mi_eq.id_club}"] = "4-3-3"
+
+    col_esquema, col_vacio = st.columns([1, 2])
+    with col_esquema:
+        esquema_sel = st.selectbox(
+            "📐 Esquema Táctico:", 
+            list(TACTICAS.keys()), 
+            index=list(TACTICAS.keys()).index(st.session_state[f"esquema_{mi_eq.id_club}"])
+        )
+        st.session_state[f"esquema_{mi_eq.id_club}"] = esquema_sel
+
+    posiciones_requeridas = TACTICAS[esquema_sel]
+    key_titulares = f"titulares_{mi_eq.id_club}"
+    
+    if key_titulares not in st.session_state or len(st.session_state[key_titulares]) != 11:
+        st.session_state[key_titulares] = [j.nombre for j in sorted(mi_eq.plantilla, key=lambda x: x.grl, reverse=True)[:11]]
+
+    nombres_plantilla = [j.nombre for j in mi_eq.plantilla]
+    titulares_actuales = [n for n in st.session_state[key_titulares] if n in nombres_plantilla]
+    while len(titulares_actuales) < 11 and len(nombres_plantilla) >= 11:
+        faltante = next(n for n in nombres_plantilla if n not in titulares_actuales)
+        titulares_actuales.append(faltante)
+
+    st.subheader("⚽ Selección del 11 Titular")
+    
+    nuevos_titulares = []
+    cols = st.columns(3)
+    
+    for idx, pos_req in enumerate(posiciones_requeridas):
+        col = cols[idx % 3]
+        default_j = titulares_actuales[idx] if idx < len(titulares_actuales) else nombres_plantilla[0]
+        opciones = [n for n in nombres_plantilla if n not in nuevos_titulares or n == default_j]
+        
+        opcion_elegida = col.selectbox(
+            f"Puesto {idx+1} ({pos_req}):",
+            options=opciones,
+            index=opciones.index(default_j) if default_j in opciones else 0,
+            key=f"slot_{mi_eq.id_club}_{idx}"
+        )
+        nuevos_titulares.append(opcion_elegida)
+
+    st.session_state[key_titulares] = nuevos_titulares
+
+    objetos_titulares = [j for j in mi_eq.plantilla if j.nombre in nuevos_titulares]
+    media_titulares = sum(j.grl for j in objetos_titulares) // len(objetos_titulares) if objetos_titulares else 0
+
+    st.markdown("---")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Media 11 Titular", f"{media_titulares} ⭐️")
+    c2.metric("Jugadores En Plantilla", len(mi_eq.plantilla))
+    c3.metric("Valor Total del Club", f"{sum(j.valor_base for j in mi_eq.plantilla):,} €")
+
+    st.subheader("📋 Lista de Jugadores")
+    datos_plantilla = [
+        {
+            "Rol": "🟢 Titular" if j.nombre in nuevos_titulares else "⚪️ Suplente",
+            "Jugador": j.nombre,
+            "Posición": j.posicion,
+            "Media GRL": j.grl,
+            "Valor de Mercado": j.valor_base
+        }
+        for j in mi_eq.plantilla
+    ]
+
+    st.dataframe(
+        datos_plantilla,
+        column_config={
+            "Rol": st.column_config.TextColumn("Estado", width="small"),
+            "Jugador": st.column_config.TextColumn("Nombre del Jugador"),
+            "Posición": st.column_config.TextColumn("Posición", width="small"),
+            "Media GRL": st.column_config.ProgressColumn("Media (GRL)", format="%d", min_value=50, max_value=99),
+            "Valor de Mercado": st.column_config.NumberColumn("Valor (€)", format="%d €")
+        },
+        hide_index=True,
+        use_container_width=True
+    )
 
 # 3. SUBASTAS
 elif menu == "🔥 Subastas":
@@ -291,7 +383,6 @@ elif menu == "🔥 Subastas":
     
     st.write(f"Jugador: **{j_actual.nombre}** ({j_actual.posicion} - GRL {j_actual.grl})")
     
-    # Muestra del reloj en vivo
     if st.session_state.get("subasta_activa") and st.session_state.get("hora_fin_subasta"):
         tiempo_restante = st.session_state.hora_fin_subasta - datetime.datetime.now()
         if tiempo_restante.total_seconds() > 0:
@@ -346,7 +437,6 @@ elif menu == "⚡ Pro Admin":
     else:
         tab1, tab2, tab3 = st.tabs(["⚽ Partidos & Mercado", "💰 Gestor Financiero", "🛠️ Modificar Stats & PINs"])
 
-        # TAB 1: SIMULAR Y MERCADO
         with tab1:
             st.subheader(f"Simular Jornada {st.session_state.jornada_actual}")
             if st.session_state.jornada_actual <= 11:
@@ -435,7 +525,6 @@ elif menu == "⚡ Pro Admin":
                 guardar_partida()
                 st.rerun()
 
-        # TAB 2: INYECTAR / QUITAR DINERO Y RESTABLECER
         with tab2:
             st.subheader("💵 Inyección o Descuento de Presupuesto")
             eq_destino = st.selectbox("Selecciona el equipo:", [e.nombre for e in st.session_state.equipos])
@@ -458,7 +547,6 @@ elif menu == "⚡ Pro Admin":
                 st.success("¡Todos los presupuestos han sido restablecidos a 200.000.000 €!")
                 st.rerun()
 
-        # TAB 3: MODIFICAR PUNTOS Y PINS
         with tab3:
             st.subheader("✏️ Edición de Puntos y Tabla")
             eq_edit = st.selectbox("Selecciona equipo a editar:", [e.nombre for e in st.session_state.equipos], key="edit_eq")
