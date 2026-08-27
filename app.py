@@ -2,6 +2,7 @@ import streamlit as st
 import random
 import json
 import os
+import datetime
 
 st.set_page_config(page_title="Liga Manager Fantasy", page_icon="⚽", layout="wide")
 
@@ -29,7 +30,7 @@ class Equipo:
         self.nombre = nombre
         self.emoji = emoji
         self.presidente = f"Presidente Club {id_club}"
-        self.password = str(pin_predeterminado)  # PIN por defecto (1 al 12)
+        self.password = str(pin_predeterminado)
         self.es_humano = True
         self.presupuesto = PRESUPUESTO_INICIAL
         self.plantilla = []
@@ -86,7 +87,9 @@ def guardar_partida():
         "mercado_pool": [j.to_dict() for j in st.session_state.mercado_pool],
         "subasta_idx": st.session_state.subasta_idx,
         "puja_max": st.session_state.puja_max,
-        "lider_puja_nombre": st.session_state.lider_puja_eq.nombre if st.session_state.lider_puja_eq else None
+        "lider_puja_nombre": st.session_state.lider_puja_eq.nombre if st.session_state.lider_puja_eq else None,
+        "subasta_activa": st.session_state.get("subasta_activa", False),
+        "hora_fin_subasta": st.session_state.hora_fin_subasta.isoformat() if st.session_state.get("hora_fin_subasta") else None
     }
     with open(ARCHIVO_GUARDADO, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
@@ -102,6 +105,12 @@ def cargar_partida():
         st.session_state.subasta_idx = data["subasta_idx"]
         st.session_state.puja_max = data["puja_max"]
         
+        st.session_state.subasta_activa = data.get("subasta_activa", False)
+        if data.get("hora_fin_subasta"):
+            st.session_state.hora_fin_subasta = datetime.datetime.fromisoformat(data["hora_fin_subasta"])
+        else:
+            st.session_state.hora_fin_subasta = None
+
         lider_nom = data["lider_puja_nombre"]
         if lider_nom:
             st.session_state.lider_puja_eq = next((e for e in st.session_state.equipos if e.nombre == lider_nom), None)
@@ -123,7 +132,6 @@ if "liga_inicializada" not in st.session_state:
         def generar_plantilla_base():
             return [Jugador(f"{random.choice(NOMBRES)} {random.choice(APELLIDOS)}", pos, random.randint(60, 75), random.randint(60, 75) * 100_000) for pos in POSICIONES]
 
-        # Lista de 12 equipos asignando un PIN del 1 al 12
         clubes_info = [
             (1, "Hunter x Hunter", "⚡"),
             (2, "Garra Oscura", "🖤"),
@@ -164,6 +172,8 @@ if "liga_inicializada" not in st.session_state:
         st.session_state.subasta_actual = st.session_state.mercado_pool[0]
         st.session_state.puja_max = st.session_state.mercado_pool[0].valor_base
         st.session_state.lider_puja_eq = None
+        st.session_state.subasta_activa = False
+        st.session_state.hora_fin_subasta = None
         st.session_state.liga_inicializada = True
         guardar_partida()
 
@@ -181,13 +191,8 @@ if "mi_equipo" not in st.session_state and not st.session_state.es_solo_admin:
     with col_jugador:
         st.subheader("Acceso a Clubes (PIN 1 - 12)")
         
-        # Selección de club de la lista
         eq_login_nombre = st.selectbox("Selecciona tu Club:", [f"Nº {e.id_club} | {e.emoji} {e.nombre}" for e in st.session_state.equipos])
-        
-        # Nombre opcional para personalizar la firma del presidente
         nombre_presi_input = st.text_input("Tu Nombre de Presidente (Opcional):")
-        
-        # Entrada de Clave PIN
         pwd_login = st.text_input("PIN de Acceso del Club (del 1 al 12 por defecto):", type="password", key="pwd_club_login")
         
         if st.button("Ingresar al Club"):
@@ -285,6 +290,20 @@ elif menu == "🔥 Subastas":
     lider_nombre = st.session_state.lider_puja_eq.nombre if st.session_state.lider_puja_eq else "Nadie"
     
     st.write(f"Jugador: **{j_actual.nombre}** ({j_actual.posicion} - GRL {j_actual.grl})")
+    
+    # Muestra del reloj en vivo
+    if st.session_state.get("subasta_activa") and st.session_state.get("hora_fin_subasta"):
+        tiempo_restante = st.session_state.hora_fin_subasta - datetime.datetime.now()
+        if tiempo_restante.total_seconds() > 0:
+            m, s = divmod(int(tiempo_restante.total_seconds()), 60)
+            h, m = divmod(m, 60)
+            st.metric("⏳ Tiempo restante:", f"{h:02d}:{m:02d}:{s:02d}")
+        else:
+            st.session_state.subasta_activa = False
+            st.error("🚨 ¡Tiempo agotado! Esperando cierre de subasta por el Administrador.")
+    else:
+        st.info("⏸️ Subasta actualmente en pausa o sin temporizador activo.")
+
     st.write(f"Puja Actual: **{st.session_state.puja_max:,} €** por **{lider_nombre}**")
     
     if not st.session_state.es_solo_admin:
@@ -376,7 +395,26 @@ elif menu == "⚡ Pro Admin":
                 st.info("Temporada regular completada.")
 
             st.markdown("---")
-            st.subheader("🔨 Control de Subastas")
+            st.subheader("🔨 Control de Subastas & Temporizador")
+            
+            c1, c2 = st.columns(2)
+            with c1:
+                if st.button("⏱️ Iniciar Temporizador (1 Hora)"):
+                    st.session_state.hora_fin_subasta = datetime.datetime.now() + datetime.timedelta(hours=1)
+                    st.session_state.subasta_activa = True
+                    guardar_partida()
+                    st.success("Reloj de 1 hora iniciado.")
+                    st.rerun()
+
+            with c2:
+                if st.button("🛑 Pausar Temporizador"):
+                    st.session_state.subasta_activa = False
+                    st.session_state.hora_fin_subasta = None
+                    guardar_partida()
+                    st.warning("Temporizador detenido.")
+                    st.rerun()
+
+            st.write("")
             if st.button("Cerrar Subasta Actual y Adjudicar Jugador"):
                 ganador = st.session_state.lider_puja_eq
                 jugador = st.session_state.subasta_actual
@@ -392,6 +430,8 @@ elif menu == "⚡ Pro Admin":
                 st.session_state.subasta_actual = nuevo_j
                 st.session_state.puja_max = nuevo_j.valor_base
                 st.session_state.lider_puja_eq = None
+                st.session_state.subasta_activa = False
+                st.session_state.hora_fin_subasta = None
                 guardar_partida()
                 st.rerun()
 
