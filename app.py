@@ -1,13 +1,14 @@
-import datetime
+import random
+import streamlit as st
+
+st.set_page_config(import datetime
 import json
 import os
 import random
 import streamlit as st
 
 st.set_page_config(
-    page_title="Liga Manager Fantasy Beta 2.0 - IA Bots",
-    page_icon="⚽",
-    layout="wide",
+    page_title="Liga Manager Fantasy Beta 2.0 - IA Bots", page_icon="⚽", layout="wide"
 )
 
 PRESUPUESTO_INICIAL = 200_000_000
@@ -49,9 +50,7 @@ class Equipo:
     self.id_club = id_club
     self.nombre = nombre
     self.emoji = emoji
-    self.presidente = (
-        f"Presidente Club {id_club}" if es_humano else f"🤖 Bot {nombre}"
-    )
+    self.presidente = f"Presidente Club {id_club}" if es_humano else f"🤖 Bot {nombre}"
     self.password = str(pin_predeterminado)
     self.es_humano = es_humano
     self.presupuesto = PRESUPUESTO_INICIAL
@@ -155,39 +154,74 @@ class Equipo:
     return eq
 
 
+# --- CEREBRO DE LAS IAs (BOTS AUTÓNOMOS) ---
 def ejecutar_logica_bots():
+  """Simula el comportamiento estratégico de los equipos controlados por IA."""
   bots = [e for e in st.session_state.equipos if not e.es_humano]
   if not bots:
     return
 
+  mensajes_ia = []
+
   for bot in bots:
-    if st.session_state.get("subasta_activa") and st.session_state.get(
-        "subasta_actual"
-    ):
+    # 1. Comportamiento en subastas activas
+    if st.session_state.get("subasta_activa") and st.session_state.get("subasta_actual"):
+      j_sub = st.session_state.subasta_actual
+      # Si el bot tiene suficiente presupuesto y el precio actual es razonable para su valor
       if bot.presupuesto > st.session_state.puja_max + 2_000_000:
-        if st.session_state.lider_puja_eq != bot and random.random() < 0.6:
-          nueva_puja = st.session_state.puja_max + random.randint(
-              1_000_000, 5_000_000
-          )
+        if st.session_state.lider_puja_eq != bot and random.random() < 0.6:  # 60% de probabilidad de pujar
+          nueva_puja = st.session_state.puja_max + random.randint(1_000_000, 5_000_000)
           if nueva_puja <= bot.presupuesto:
             st.session_state.puja_max = nueva_puja
             st.session_state.lider_puja_eq = bot
+            mensajes_ia.append(f"🤖 {bot.emoji} **{bot.nombre}** pujó {nueva_puja:,} € por {j_sub.nombre}.")
 
-    if random.random() < 0.4:
+    # 2. Comportamiento de pago de cláusulas o negociaciones (Aleatorio al simular/avanzar)
+    if random.random() < 0.4:  # 40% de probabilidad de acción de mercado por jornada/ciclo
+      # Buscar un objetivo de otro equipo para fichar por cláusula
       otros = [e for e in st.session_state.equipos if e.id_club != bot.id_club]
       if otros:
         objetivo_eq = random.choice(otros)
         if objetivo_eq.plantilla:
           candidato_j = max(objetivo_eq.plantilla, key=lambda x: x.grl)
+          # Si el bot tiene dinero para la cláusula y el jugador mejoraría su plantilla
           media_actual_bot = bot.calcular_media_equipo()
-          if (
-              bot.presupuesto >= candidato_j.clausula
-              and candidato_j.grl >= media_actual_bot
-          ):
+          if bot.presupuesto >= candidato_j.clausula and candidato_j.grl >= media_actual_bot:
             bot.presupuesto -= candidato_j.clausula
             objetivo_eq.presupuesto += candidato_j.clausula
             objetivo_eq.plantilla.remove(candidato_j)
             bot.plantilla.append(candidato_j)
+            mensajes_ia.append(
+                f"🚨 ¡Cláusula pagada! 🤖 **{bot.nombre}** pagó la cláusula de"
+                f" **{candidato_j.nombre}** ({candidato_j.grl} GRL) a"
+                f" {objetivo_eq.nombre} por {candidato_j.clausula:,} €."
+            )
+
+  if mensajes_ia and "historial_resultados" in st.session_state:
+    # Opcional: guardar o mostrar eventos de IA en el historial de la jornada
+    pass
+
+
+# --- FUNCIONES DE SIMULACIÓN Y PERSISTENCIA ---
+def simular_partido_eliminatorio(eq1_nom, media1, eq2_nom, media2):
+  diferencia = media1 - media2
+  esp1 = max(0.5, 1.4 + (diferencia / 10.0))
+  esp2 = max(0.5, 1.4 - (diferencia / 10.0))
+  g1 = max(0, int(random.gauss(esp1, 0.9)))
+  g2 = max(0, int(random.gauss(esp2, 0.9)))
+
+  if g1 == g2:
+    pen1, pen2 = 0, 0
+    while pen1 == pen2:
+      pen1 = random.randint(3, 5)
+      pen2 = random.randint(3, 5)
+    ganador = eq1_nom if pen1 > pen2 else eq2_nom
+    res_str = f"{eq1_nom} **{g1} - {g2}** {eq2_nom} *(Penaltis: {pen1}-{pen2})*"
+    return ganador, res_str
+  else:
+    ganador = eq1_nom if g1 > g2 else eq2_nom
+    res_str = f"{eq1_nom} **{g1} - {g2}** {eq2_nom}"
+    return ganador, res_str
 
 
 def guardar_partida():
@@ -239,11 +273,7 @@ def cargar_partida():
       camp_nom = data.get("campeon_copa")
       st.session_state.campeon_copa = (
           next(
-              (
-                  e
-                  for e in st.session_state.equipos
-                  if e.nombre == str(camp_nom)
-              ),
+              (e for e in st.session_state.equipos if e.nombre == str(camp_nom)),
               None,
           )
           if camp_nom
@@ -265,10 +295,7 @@ def cargar_partida():
       )
       lider_nom = data.get("lider_puja_nombre")
       st.session_state.lider_puja_eq = (
-          next(
-              (e for e in st.session_state.equipos if e.nombre == lider_nom),
-              None,
-          )
+          next((e for e in st.session_state.equipos if e.nombre == lider_nom), None)
           if lider_nom
           else None
       )
@@ -285,44 +312,13 @@ def cargar_partida():
   return False
 
 
+# --- INICIALIZACIÓN ---
 if "liga_inicializada" not in st.session_state:
   if not cargar_partida():
-    NOMBRES = [
-        "Aarón",
-        "Beto",
-        "Carlos",
-        "Damián",
-        "Enzo",
-        "Franco",
-        "Gael",
-        "Hugo",
-        "Iker",
-        "Javier",
-    ]
-    APELLIDOS = [
-        "Roca",
-        "Soto",
-        "Vidal",
-        "Blanco",
-        "Cruz",
-        "Navarro",
-        "Peña",
-        "Mora",
-        "Rios",
-        "Vega",
-    ]
-    POSICIONES = [
-        "POR",
-        "DEF",
-        "DEF",
-        "DEF",
-        "MED",
-        "MED",
-        "MED",
-        "DEL",
-        "DEL",
-        "DEL",
-    ]
+    NOMBRES = ["Aarón", "Beto", "Carlos", "Damián", "Enzo", "Franco", "Gael", "Hugo", "Iker", "Javier"]
+    APELLIDOS = ["Roca", "Soto", "Vidal", "Blanco", "Cruz", "Navarro", "Peña", "Mora", "Rios", "Vega"]
+    POSICIONES = ["POR", "DEF", "DEF", "DEF", "MED", "MED", "MED", "DEL", "DEL", "DEL"]
+
 
     def generar_plantilla_base():
       return [
@@ -334,6 +330,7 @@ if "liga_inicializada" not in st.session_state:
           )
           for pos in POSICIONES
       ]
+
 
     clubes_info = [
         (1, "Hunter x Hunter", "⚡"),
@@ -352,7 +349,8 @@ if "liga_inicializada" not in st.session_state:
 
     clubes = []
     for id_c, nom, emoji in clubes_info:
-      es_humano = id_c == 1
+      # Club 1 humano por defecto, el resto bots autónomos
+      es_humano = (id_c == 1)
       eq = Equipo(id_c, nom, emoji, pin_predeterminado=id_c, es_humano=es_humano)
       eq.plantilla = generar_plantilla_base()
       clubes.append(eq)
@@ -390,6 +388,7 @@ if "es_admin_autenticado" not in st.session_state:
 if "es_solo_admin" not in st.session_state:
   st.session_state.es_solo_admin = False
 
+# --- PORTAL DE ACCESO ---
 if "mi_equipo" not in st.session_state and not st.session_state.es_solo_admin:
   st.title("🎮 Portal de Acceso a la Liga - Beta 2.0 (Con Bots IA)")
   col_jugador, col_admin = st.columns(2)
@@ -398,25 +397,17 @@ if "mi_equipo" not in st.session_state and not st.session_state.es_solo_admin:
     st.subheader("Acceso a Clubes (PIN 1 - 12)")
     eq_login_nombre = st.selectbox(
         "Selecciona tu Club:",
-        [
-            f"Nº {e.id_club} | {e.emoji} {e.nombre} ({'Humano' if e.es_humano else '🤖 Bot'})"
-            for e in st.session_state.equipos
-        ],
+        [f"Nº {e.id_club} | {e.emoji} {e.nombre} ({'Humano' if e.es_humano else '🤖 Bot'})" for e in st.session_state.equipos],
     )
     nombre_presi_input = st.text_input("Tu Nombre de Presidente (Opcional):")
-    pwd_login = st.text_input(
-        "PIN de Acceso del Club:", type="password", key="pwd_club_login"
-    )
+    pwd_login = st.text_input("PIN de Acceso del Club:", type="password", key="pwd_club_login")
 
     if st.button("Ingresar al Club"):
-      idx_SEL = [
-          f"Nº {e.id_club} | {e.emoji} {e.nombre} ({'Humano' if e.es_humano else '🤖 Bot'})"
-          for e in st.session_state.equipos
-      ].index(eq_login_nombre)
+      idx_SEL = [f"Nº {e.id_club} | {e.emoji} {e.nombre} ({'Humano' if e.es_humano else '🤖 Bot'})" for e in st.session_state.equipos].index(eq_login_nombre)
       eq_obj = st.session_state.equipos[idx_SEL]
-
+      
       if pwd_login.strip() == str(eq_obj.password):
-        eq_obj.es_humano = True
+        eq_obj.es_humano = True  # Al entrar se vuelve humano automáticamente
         if nombre_presi_input.strip():
           eq_obj.presidente = nombre_presi_input.strip()
         guardar_partida()
@@ -439,12 +430,12 @@ if "mi_equipo" not in st.session_state and not st.session_state.es_solo_admin:
         st.error("Clave incorrecta.")
   st.stop()
 
+# Reconectar equipo si recarga
 if not st.session_state.es_solo_admin and "mi_equipo" in st.session_state:
   nombre_actual = st.session_state.mi_equipo.nombre
-  st.session_state.mi_equipo = next(
-      e for e in st.session_state.equipos if e.nombre == nombre_actual
-  )
+  st.session_state.mi_equipo = next(e for e in st.session_state.equipos if e.nombre == nombre_actual)
 
+# --- BARRA LATERAL ---
 if st.session_state.es_solo_admin:
   st.sidebar.title("👑 Administrador")
   st.sidebar.write("Rol: **Comisionado Supremo**")
@@ -465,18 +456,13 @@ if st.sidebar.button("🚪 Salir / Cerrar Sesión"):
   st.session_state.es_admin_autenticado = False
   st.rerun()
 
-opciones_menu = [
-    "📊 Clasificación",
-    "🔥 Subastas",
-    "🤝 Mercado & Cláusulas",
-    "⚽ Resultados",
-    "⚡ Pro Admin",
-]
+opciones_menu = ["📊 Clasificación", "🔥 Subastas", "🤝 Mercado & Cláusulas", "⚽ Resultados", "⚡ Pro Admin"]
 if not st.session_state.es_solo_admin:
   opciones_menu.insert(1, "📋 Mi Plantilla")
 
 menu = st.sidebar.radio("Navegación", opciones_menu)
 
+# 1. CLASIFICACIÓN
 if menu == "📊 Clasificación":
   st.header("🏆 Tabla de Posiciones")
   datos = []
@@ -508,63 +494,16 @@ if menu == "📊 Clasificación":
     })
   st.table(datos)
 
+# 2. MI PLANTILLA Y TÁCTICA
 elif menu == "📋 Mi Plantilla":
   mi_eq = st.session_state.mi_equipo
   st.header(f"🛡️ Gestión Táctica y Plantilla - {mi_eq.nombre}")
 
   TACTICAS = {
-      "4-3-3": [
-          "POR",
-          "DEF",
-          "DEF",
-          "DEF",
-          "DEF",
-          "MED",
-          "MED",
-          "MED",
-          "DEL",
-          "DEL",
-          "DEL",
-      ],
-      "4-4-2": [
-          "POR",
-          "DEF",
-          "DEF",
-          "DEF",
-          "DEF",
-          "MED",
-          "MED",
-          "MED",
-          "MED",
-          "DEL",
-          "DEL",
-      ],
-      "3-5-2": [
-          "POR",
-          "DEF",
-          "DEF",
-          "DEF",
-          "MED",
-          "MED",
-          "MED",
-          "MED",
-          "MED",
-          "DEL",
-          "DEL",
-      ],
-      "5-3-2": [
-          "POR",
-          "DEF",
-          "DEF",
-          "DEF",
-          "DEF",
-          "DEF",
-          "MED",
-          "MED",
-          "MED",
-          "DEL",
-          "DEL",
-      ],
+      "4-3-3": ["POR", "DEF", "DEF", "DEF", "DEF", "MED", "MED", "MED", "DEL", "DEL", "DEL"],
+      "4-4-2": ["POR", "DEF", "DEF", "DEF", "DEF", "MED", "MED", "MED", "MED", "DEL", "DEL"],
+      "3-5-2": ["POR", "DEF", "DEF", "DEF", "MED", "MED", "MED", "MED", "MED", "DEL", "DEL"],
+      "5-3-2": ["POR", "DEF", "DEF", "DEF", "DEF", "DEF", "MED", "MED", "MED", "DEL", "DEL"],
   }
 
   if f"esquema_{mi_eq.id_club}" not in st.session_state:
@@ -573,9 +512,7 @@ elif menu == "📋 Mi Plantilla":
   esquema_sel = st.selectbox(
       "📐 Esquema Táctico:",
       list(TACTICAS.keys()),
-      index=list(TACTICAS.keys()).index(
-          st.session_state[f"esquema_{mi_eq.id_club}"]
-      ),
+      index=list(TACTICAS.keys()).index(st.session_state[f"esquema_{mi_eq.id_club}"]),
   )
   st.session_state[f"esquema_{mi_eq.id_club}"] = esquema_sel
 
@@ -584,39 +521,24 @@ elif menu == "📋 Mi Plantilla":
   titulares_previos = st.session_state.get(key_titulares, [])
 
   st.subheader("⚽ Selección del 11 Titular")
-  dict_jugadores = {
-      f"{j.nombre} ({j.posicion} - {j.grl} GRL)": j for j in mi_eq.plantilla
-  }
+  dict_jugadores = {f"{j.nombre} ({j.posicion} - {j.grl} GRL)": j for j in mi_eq.plantilla}
   nuevos_titulares_nombres = []
   cols = st.columns(3)
 
   for idx, pos_req in enumerate(posiciones_requeridas):
     col = cols[idx % 3]
     candidatos_pos = [j for j in mi_eq.plantilla if j.posicion == pos_req]
-    disponibles_objs = [
-        j for j in candidatos_pos if j.nombre not in nuevos_titulares_nombres
-    ]
+    disponibles_objs = [j for j in candidatos_pos if j.nombre not in nuevos_titulares_nombres]
     if not disponibles_objs:
-      disponibles_objs = [
-          j for j in mi_eq.plantilla if j.nombre not in nuevos_titulares_nombres
-      ]
+      disponibles_objs = [j for j in mi_eq.plantilla if j.nombre not in nuevos_titulares_nombres]
     if not disponibles_objs:
       disponibles_objs = mi_eq.plantilla
 
-    opciones_etiquetas = [
-        f"{j.nombre} ({j.posicion} - {j.grl} GRL)" for j in disponibles_objs
-    ]
+    opciones_etiquetas = [f"{j.nombre} ({j.posicion} - {j.grl} GRL)" for j in disponibles_objs]
     predeterminada_etiqueta = opciones_etiquetas[0]
     if idx < len(titulares_previos):
       nombre_previo = titulares_previos[idx]
-      match_etiqueta = next(
-          (
-              etq
-              for etq in opciones_etiquetas
-              if dict_jugadores[etq].nombre == nombre_previo
-          ),
-          None,
-      )
+      match_etiqueta = next((etq for etq in opciones_etiquetas if dict_jugadores[etq].nombre == nombre_previo), None)
       if match_etiqueta:
         predeterminada_etiqueta = match_etiqueta
 
@@ -626,9 +548,7 @@ elif menu == "📋 Mi Plantilla":
         index=opciones_etiquetas.index(predeterminada_etiqueta),
         key=f"slot_{mi_eq.id_club}_{idx}",
     )
-    nuevos_titulares_nombres.append(
-        dict_jugadores[opcion_elegida_etiqueta].nombre
-    )
+    nuevos_titulares_nombres.append(dict_jugadores[opcion_elegida_etiqueta].nombre)
 
   st.session_state[key_titulares] = nuevos_titulares_nombres
   media_titulares = mi_eq.calcular_media_equipo()
@@ -643,11 +563,7 @@ elif menu == "📋 Mi Plantilla":
   st.subheader("📋 Detalle de Jugadores (Valor, Cláusula y Salario)")
   datos_plantilla = [
       {
-          "Rol": (
-              "🟢 Titular"
-              if j.nombre in nuevos_titulares_nombres
-              else "⚪️ Suplente"
-          ),
+          "Rol": "🟢 Titular" if j.nombre in nuevos_titulares_nombres else "⚪️ Suplente",
           "Jugador": j.nombre,
           "Posición": j.posicion,
           "Media": j.grl,
@@ -659,27 +575,18 @@ elif menu == "📋 Mi Plantilla":
   ]
   st.dataframe(datos_plantilla, use_container_width=True, hide_index=True)
 
+# 3. SUBASTAS
 elif menu == "🔥 Subastas":
   st.header("🔥 Subasta Abierta (Con Actividad de Bots IA)")
   j_actual = st.session_state.subasta_actual
-  lider_nombre = (
-      st.session_state.lider_puja_eq.nombre
-      if st.session_state.lider_puja_eq
-      else "Nadie"
-  )
-  st.write(
-      f"Jugador en Subasta: **{j_actual.nombre}** ({j_actual.posicion} - GRL"
-      f" {j_actual.grl})"
-  )
+  lider_nombre = st.session_state.lider_puja_eq.nombre if st.session_state.lider_puja_eq else "Nadie"
+  st.write(f"Jugador en Subasta: **{j_actual.nombre}** ({j_actual.posicion} - GRL {j_actual.grl})")
 
+  # Ejecutar IA de bots al refrescar subasta si está activa
   ejecutar_logica_bots()
 
-  if st.session_state.get("subasta_activa") and st.session_state.get(
-      "hora_fin_subasta"
-  ):
-    tiempo_restante = (
-        st.session_state.hora_fin_subasta - datetime.datetime.now()
-    )
+  if st.session_state.get("subasta_activa") and st.session_state.get("hora_fin_subasta"):
+    tiempo_restante = st.session_state.hora_fin_subasta - datetime.datetime.now()
     if tiempo_restante.total_seconds() > 0:
       m, s = divmod(int(tiempo_restante.total_seconds()), 60)
       h, m = divmod(m, 60)
@@ -690,10 +597,7 @@ elif menu == "🔥 Subastas":
   else:
     st.info("⏸️ Subasta en pausa o sin reloj activo.")
 
-  st.write(
-      f"Puja Actual: **{st.session_state.puja_max:,} €** por"
-      f" **{lider_nombre}**"
-  )
+  st.write(f"Puja Actual: **{st.session_state.puja_max:,} €** por **{lider_nombre}**")
 
   if not st.session_state.es_solo_admin:
     mi_eq = st.session_state.mi_equipo
@@ -712,6 +616,7 @@ elif menu == "🔥 Subastas":
       else:
         st.error("No tienes suficiente presupuesto.")
 
+# 4. MERCADO ENTRE CLUBES & CLÁUSULAS
 elif menu == "🤝 Mercado & Cláusulas":
   st.header("🤝 Mercado de Fichajes y Cláusulas de Rescisión")
 
@@ -727,23 +632,14 @@ elif menu == "🤝 Mercado & Cláusulas":
       st.warning("Entra como club para negociar.")
     else:
       mi_eq = st.session_state.mi_equipo
-      otros_equipos = [
-          e for e in st.session_state.equipos if e.id_club != mi_eq.id_club
-      ]
-      eq_destino_nombre = st.selectbox(
-          "Selecciona el club propietario:", [e.nombre for e in otros_equipos]
-      )
+      otros_equipos = [e for e in st.session_state.equipos if e.id_club != mi_eq.id_club]
+      eq_destino_nombre = st.selectbox("Selecciona el club propietario:", [e.nombre for e in otros_equipos])
       eq_dest = next(e for e in otros_equipos if e.nombre == eq_destino_nombre)
 
       if eq_dest.plantilla:
-        jugador_sel_nom = st.selectbox(
-            "Selecciona al jugador:", [j.nombre for j in eq_dest.plantilla]
-        )
+        jugador_sel_nom = st.selectbox("Selecciona al jugador:", [j.nombre for j in eq_dest.plantilla])
         j_obj = next(j for j in eq_dest.plantilla if j.nombre == jugador_sel_nom)
-        st.write(
-            f"ℹ️ Valor de mercado: {j_obj.valor_base:,} € | Cláusula:"
-            f" {j_obj.clausula:,} €"
-        )
+        st.write(f"ℹ️ Valor de mercado: {j_obj.valor_base:,} € | Cláusula: {j_obj.clausula:,} €")
 
         monto_oferta = st.number_input(
             "Monto de tu oferta (€):",
@@ -763,9 +659,7 @@ elif menu == "🤝 Mercado & Cláusulas":
                 "monto": monto_oferta,
             })
             guardar_partida()
-            st.success(
-                f"¡Oferta enviada a {eq_dest.nombre} por {monto_oferta:,} €!"
-            )
+            st.success(f"¡Oferta enviada a {eq_dest.nombre} por {monto_oferta:,} €!")
           else:
             st.error("No tienes fondos suficientes para esta oferta.")
       else:
@@ -788,16 +682,11 @@ elif menu == "🤝 Mercado & Cláusulas":
             f"{j.nombre} ({e.nombre}) - Cláusula: {j.clausula:,} €"
             for e, j in todos_los_jugadores
         ]
-        sel_clausula = st.selectbox(
-            "Selecciona jugador a clausular:", opciones_clausulas
-        )
+        sel_clausula = st.selectbox("Selecciona jugador a clausular:", opciones_clausulas)
         idx_sel = opciones_clausulas.index(sel_clausula)
         eq_propietario, jugador_clausulado = todos_los_jugadores[idx_sel]
 
-        st.write(
-            f"Club actual: {eq_propietario.emoji} {eq_propietario.nombre} |"
-            f" GRL: {jugador_clausulado.grl}"
-        )
+        st.write(f"Club actual: {eq_propietario.emoji} {eq_propietario.nombre} | GRL: {jugador_clausulado.grl}")
 
         if st.button("🚨 Pagar Cláusula al Contado"):
           if mi_eq.presupuesto >= jugador_clausulado.clausula:
@@ -806,10 +695,7 @@ elif menu == "🤝 Mercado & Cláusulas":
             eq_propietario.plantilla.remove(jugador_clausulado)
             mi_eq.plantilla.append(jugador_clausulado)
             guardar_partida()
-            st.success(
-                f"🎉 ¡Has pagado la cláusula de {jugador_clausulado.nombre} y"
-                " ya es tuyo!"
-            )
+            st.success(f"🎉 ¡Has pagado la cláusula de {jugador_clausulado.nombre} y ya es tuyo!")
             st.rerun()
           else:
             st.error("No tienes suficiente presupuesto para pagar esta cláusula.")
@@ -823,28 +709,17 @@ elif menu == "🤝 Mercado & Cláusulas":
     else:
       mi_eq = st.session_state.mi_equipo
       ofertas_mias = [
-          o
-          for o in st.session_state.get("ofertas_fichaje", [])
-          if o["vendedor"] == mi_eq.nombre
+          o for o in st.session_state.get("ofertas_fichaje", []) if o["vendedor"] == mi_eq.nombre
       ]
 
       if ofertas_mias:
         for i, oferta in enumerate(ofertas_mias):
-          st.write(
-              f"📌 **{oferta['comprador']}** ofrece **{oferta['monto']:,} €** por"
-              f" tu jugador **{oferta['jugador']}**"
-          )
+          st.write(f"📌 **{oferta['comprador']}** ofrece **{oferta['monto']:,} €** por tu jugador **{oferta['jugador']}**")
           col_a, col_r = st.columns(2)
           with col_a:
             if st.button("✅ Aceptar", key=f"aceptar_{i}"):
-              comprador = next(
-                  e
-                  for e in st.session_state.equipos
-                  if e.nombre == oferta["comprador"]
-              )
-              jugador_obj = next(
-                  j for j in mi_eq.plantilla if j.nombre == oferta["jugador"]
-              )
+              comprador = next(e for e in st.session_state.equipos if e.nombre == oferta["comprador"])
+              jugador_obj = next(j for j in mi_eq.plantilla if j.nombre == oferta["jugador"])
 
               if comprador.presupuesto >= oferta["monto"]:
                 comprador.presupuesto -= oferta["monto"]
@@ -853,10 +728,7 @@ elif menu == "🤝 Mercado & Cláusulas":
                 comprador.plantilla.append(jugador_obj)
                 st.session_state.ofertas_fichaje.remove(oferta)
                 guardar_partida()
-                st.success(
-                    f"¡Transacción completada! {jugador_obj.nombre} se fue a"
-                    f" {comprador.nombre}."
-                )
+                st.success(f"¡Transacción completada! {jugador_obj.nombre} se fue a {comprador.nombre}.")
                 st.rerun()
               else:
                 st.error("El comprador ya no tiene fondos suficientes.")
@@ -869,11 +741,10 @@ elif menu == "🤝 Mercado & Cláusulas":
       else:
         st.info("No tienes ofertas pendientes en este momento.")
 
+# 5. RESULTADOS
 elif menu == "⚽ Resultados":
   st.header("⚽ Historial General de Competiciones")
-  tab_liga, tab_copa, tab_mundial = st.tabs(
-      ["🏆 Liga", "🇪🇸 Copa de España", "🌍 Mundial de Clubes"]
-  )
+  tab_liga, tab_copa, tab_mundial = st.tabs(["🏆 Liga", "🇪🇸 Copa de España", "🌍 Mundial de Clubes"])
   with tab_liga:
     if st.session_state.historial_resultados:
       for j_num, res in reversed(st.session_state.historial_resultados):
@@ -895,13 +766,12 @@ elif menu == "⚽ Resultados":
     else:
       st.info("Mundial de Clubes pendiente.")
 
+# 6. PANEL PRO ADMIN
 elif menu == "⚡ Pro Admin":
   st.header("⚡ Panel de Control Pro Admin - Beta 2.0 (Con Bots IA)")
 
   if not st.session_state.es_admin_autenticado:
-    pwd = st.text_input(
-        "Clave de Administrador:", type="password", key="pwd_admin_panel"
-    )
+    pwd = st.text_input("Clave de Administrador:", type="password", key="pwd_admin_panel")
     if st.button("Autenticar"):
       if pwd == CLAVE_ADMIN:
         st.session_state.es_admin_autenticado = True
@@ -910,16 +780,10 @@ elif menu == "⚡ Pro Admin":
       else:
         st.error("Clave incorrecta.")
   else:
-    st.info(
-        "💡 Gestiona torneos, simula jornadas, configura bots o avanza de"
-        " temporada."
-    )
+    st.info("💡 Gestiona torneos, simula jornadas, configura bots o avanza de temporada.")
     col_temp_btn1, col_temp_btn2 = st.columns([2, 1])
     with col_temp_btn1:
-      st.warning(
-          "⚠️ ¿Iniciar siguiente temporada? ¡Se cobrarán los salarios de las"
-          " plantillas a todos los clubes!"
-      )
+      st.warning("⚠️ ¿Iniciar siguiente temporada? ¡Se cobrarán los salarios de las plantillas a todos los clubes!")
     with col_temp_btn2:
       if st.button("🌟 Iniciar Siguiente Temporada", type="primary"):
         for eq in st.session_state.equipos:
@@ -955,6 +819,7 @@ elif menu == "⚡ Pro Admin":
       st.subheader(f"Simular Jornada {st.session_state.jornada_actual}")
       if st.session_state.jornada_actual <= 11:
         if st.button("🚀 Simular Partidos & Acciones IA"):
+          # Ejecutar inteligencia artificial de los bots antes de simular la jornada
           ejecutar_logica_bots()
 
           equipos_shuffled = st.session_state.equipos.copy()
@@ -962,17 +827,10 @@ elif menu == "⚡ Pro Admin":
           res_jornada = []
           for i in range(0, len(equipos_shuffled), 2):
             local, visitante = equipos_shuffled[i], equipos_shuffled[i + 1]
-            media_loc, media_vis = (
-                local.calcular_media_equipo(),
-                visitante.calcular_media_equipo(),
-            )
+            media_loc, media_vis = local.calcular_media_equipo(), visitante.calcular_media_equipo()
             dif = (media_loc + 3) - media_vis
-            gl = max(
-                0, int(random.gauss(max(0.5, 1.5 + (dif / 10.0)), 0.9))
-            )
-            gv = max(
-                0, int(random.gauss(max(0.3, 1.1 - (dif / 10.0)), 0.9))
-            )
+            gl = max(0, int(random.gauss(max(0.5, 1.5 + (dif / 10.0)), 0.9)))
+            gv = max(0, int(random.gauss(max(0.3, 1.1 - (dif / 10.0)), 0.9)))
 
             local.pj += 1
             visitante.pj += 1
@@ -982,160 +840,727 @@ elif menu == "⚡ Pro Admin":
             visitante.gc += gl
 
             if gl > gv:
-              local.pg += 1
               local.puntos += 3
+              local.pg += 1
               visitante.pp += 1
-            elif gl < gv:
-              visitante.pg += 1
+            elif gv > gl:
               visitante.puntos += 3
+              visitante.pg += 1
               local.pp += 1
             else:
-              local.pe += 1
-              visitante.pe += 1
               local.puntos += 1
               visitante.puntos += 1
+              local.pe += 1
+              visitante.pe += 1
 
             res_jornada.append(
-                f"{local.emoji} {local.nombre} **{gl} - {gv}** {visitante.emoji} {visitante.nombre}"
+                f"{local.emoji} {local.nombre} ({media_loc} GRL) **{gl} - {gv}** ({media_vis} GRL) {visitante.nombre} {visitante.emoji}"
             )
 
-          if "historial_resultados" not in st.session_state:
-            st.session_state.historial_resultados = []
-          st.session_state.historial_resultados.append(
-              (st.session_state.jornada_actual, res_jornada)
+          st.session_state.historial_resultados.append((st.session_state.jornada_actual, res_jornada))
+          st.session_state.jornada_actual += 1
+          guardar_partida()
+          st.success("¡Jornada simulada y acciones de bots procesadas!")
+          st.rerun()
+      else:
+        st.info("Liga regular completada.")
+
+      st.markdown("---")
+      st.subheader("🔨 Control de Subastas")
+      c1, c2 = st.columns(2)
+      with c1:
+        if st.button("⏱️ Iniciar Reloj (1 Hora)"):
+          st.session_state.hora_fin_subasta = datetime.datetime.now() + (datetime.timedelta(hours=1))
+          st.session_state.subasta_activa = True
+          guardar_partida()
+          st.success("Reloj iniciado.")
+          st.rerun()
+      with c2:
+        if st.button("🛑 Pausar Reloj"):
+          st.session_state.subasta_activa = False
+          st.session_state.hora_fin_subasta = None
+          guardar_partida()
+          st.warning("Reloj detenido.")
+          st.rerun()
+
+      if st.button("Cerrar Subasta Actual y Adjudicar"):
+        ganador = st.session_state.lider_puja_eq
+        jugador = st.session_state.subasta_actual
+        if ganador:
+          ganador.presupuesto -= st.session_state.puja_max
+          ganador.plantilla.append(jugador)
+          st.success(f"¡{jugador.nombre} transferido a {ganador.nombre} por {st.session_state.puja_max:,} €!")
+        else:
+          st.warning("Nadie pujó.")
+        st.session_state.subasta_idx = (st.session_state.subasta_idx + 1) % len(st.session_state.mercado_pool)
+        nuevo_j = st.session_state.mercado_pool[st.session_state.subasta_idx]
+        st.session_state.subasta_actual = nuevo_j
+        st.session_state.puja_max = nuevo_j.valor_base
+        st.session_state.lider_puja_eq = None
+        st.session_state.subasta_activa = False
+        st.session_state.hora_fin_subasta = None
+        guardar_partida()
+        st.rerun()
+
+    with tab2:
+      st.subheader("🇪🇸 Copa de España")
+      if st.session_state.jornada_actual > 11:
+        top4 = sorted(
+            st.session_state.equipos,
+            key=lambda x: (x.puntos, x.dg, x.gf),
+            reverse=True,
+        )[:4]
+        if st.button("🏆 Simular Copa de España"):
+          st.session_state.historial_copas = []
+          eq1, eq2, eq3, eq4 = top4[0], top4[1], top4[2], top4[3]
+          gan_sf1, res_sf1 = simular_partido_eliminatorio(
+              f"{eq1.emoji} {eq1.nombre}", eq1.calcular_media_equipo(),
+              f"{eq4.emoji} {eq4.nombre}", eq4.calcular_media_equipo()
+          )
+          gan_sf2, res_sf2 = simular_partido_eliminatorio(
+              f"{eq2.emoji} {eq2.nombre}", eq2.calcular_media_equipo(),
+              f"{eq3.emoji} {eq3.nombre}", eq3.calcular_media_equipo()
+          )
+          obj_gan1 = next(e for e in top4 if f"{e.emoji} {e.nombre}" == gan_sf1)
+          obj_gan2 = next(e for e in top4 if f"{e.emoji} {e.nombre}" == gan_sf2)
+          gan_final, res_final = simular_partido_eliminatorio(
+              f"{obj_gan1.emoji} {obj_gan1.nombre}", obj_gan1.calcular_media_equipo(),
+              f"{obj_gan2.emoji} {obj_gan2.nombre}", obj_gan2.calcular_media_equipo()
+          )
+          obj_campeon = next(e for e in top4 if f"{e.emoji} {e.nombre}" == gan_final)
+          st.session_state.campeon_copa = obj_campeon
+          st.session_state.historial_copas = [
+              "### 🥊 Semifinales",
+              f"- {res_sf1}",
+              f"- {res_sf2}",
+              "---",
+              "### 🏆 Final",
+              f"- {res_final}",
+              f"\n🎉 **¡{obj_campeon.emoji} {obj_campeon.nombre} es CAMPEÓN de Copa!**",
+          ]
+          guardar_partida()
+          st.success("¡Copa simulada!")
+          st.rerun()
+      else:
+        st.warning("La Liga debe llegar a la Jornada 11.")
+
+    with tab3:
+      st.subheader("🤖 Configuración de Equipos Bot vs Humano")
+      st.write("Selecciona qué equipos son controlados por la Inteligencia Artificial (Bots) y cuáles por jugadores humanos.")
+      
+      for eq in st.session_state.equipos:
+        c1, c2 = st.columns([3, 1])
+        c1.write(f"{eq.emoji} **{eq.nombre}** (Actual: {'🤖 Bot' if not eq.es_humano else '👤 Humano'})")
+        estado_nuevo = c2.toggle("Es Humano", value=eq.es_humano, key=f"bot_toggle_{eq.id_club}")
+        if estado_nuevo != eq.es_humano:
+          eq.es_humano = estado_nuevo
+          guardar_partida()
+          st.rerun()
+
+    with tab4:
+      st.subheader("💵 Inyección / Descuento de Presupuesto")
+      eq_destino = st.selectbox("Club:", [e.nombre for e in st.session_state.equipos], key="adm_presup")
+      monto_cambio = st.number_input("Monto (€):", step=5_000_000, key="adm_monto")
+      if st.button("Aplicar Transacción"):
+        for e in st.session_state.equipos:
+          if e.nombre == eq_destino:
+            e.presupuesto += monto_cambio
+            guardar_partida()
+            st.success("¡Presupuesto actualizado!")
+            st.rerun()
+
+    with tab5:
+      st.subheader("✏️ Modificar Puntos y PINs")
+      eq_edit = st.selectbox("Club a editar:", [e.nombre for e in st.session_state.equipos], key="adm_edit")
+      e_obj = next(e for e in st.session_state.equipos if e.nombre == eq_edit)
+      nuevos_pts = st.number_input("Puntos:", value=e_obj.puntos, min_value=0)
+      nuevo_pin = st.text_input("PIN:", value=str(e_obj.password))
+      if st.button("Guardar Cambios de Club"):
+        e_obj.puntos = nuevos_pts
+        e_obj.password = nuevo_pin.strip()
+        guardar_partida()
+        st.success("¡Modificado con éxito!")
+        st.rerun()
+    page_title="Liga Manager Fantasy Beta 2.0", page_icon="⚽", layout="wide"
+st.set_page_config(
+    page_title="Liga Manager Fantasy Beta 2.0 - IA Bots",
+    page_icon="⚽",
+    layout="wide",
+)
+
+PRESUPUESTO_INICIAL = 200_000_000
+CLAVE_ADMIN = "1234"
+ARCHIVO_GUARDADO = "liga_estado_beta2.json"
+ARCHIVO_GUARDADO = "liga_estado_beta2_bots.json"
+
+
+class Jugador:
+@@ -999,9 +22,7 @@ def __init__(self, nombre, posicion, grl, valor_base):
+    self.posicion = posicion
+    self.grl = grl
+    self.valor_base = valor_base
+    # Cláusula de rescisión (por defecto el doble de su valor base)
+    self.clausula = valor_base * 2
+    # Salario periódico (por defecto un 5% de su valor base)
+    self.salario = int(valor_base * 0.05)
+
+  def to_dict(self):
+@@ -1024,13 +45,15 @@ def from_dict(cls, d):
+
+class Equipo:
+
+  def __init__(self, id_club, nombre, emoji, pin_predeterminado):
+  def __init__(self, id_club, nombre, emoji, pin_predeterminado, es_humano=True):
+    self.id_club = id_club
+    self.nombre = nombre
+    self.emoji = emoji
+    self.presidente = f"Presidente Club {id_club}"
+    self.presidente = (
+        f"Presidente Club {id_club}" if es_humano else f"🤖 Bot {nombre}"
+    )
+    self.password = str(pin_predeterminado)
+    self.es_humano = True
+    self.es_humano = es_humano
+    self.presupuesto = PRESUPUESTO_INICIAL
+    self.plantilla = []
+    self.puntos = 0
+@@ -1112,10 +135,14 @@ def to_dict(self):
+
+  @classmethod
+  def from_dict(cls, d):
+    eq = cls(d.get("id_club", 1), d["nombre"], d["emoji"], d.get("password", "1"))
+    eq = cls(
+        d.get("id_club", 1),
+        d["nombre"],
+        d["emoji"],
+        d.get("password", "1"),
+        d.get("es_humano", True),
+    )
+    eq.presidente = d["presidente"]
+    eq.password = d.get("password", str(d.get("id_club", 1)))
+    eq.es_humano = d.get("es_humano", True)
+    eq.presupuesto = d["presupuesto"]
+    eq.plantilla = [Jugador.from_dict(j) for j in d["plantilla"]]
+    eq.puntos = d["puntos"]
+@@ -1128,7 +155,43 @@ def from_dict(cls, d):
+    return eq
+
+
+# --- FUNCIONES DE SIMULACIÓN Y PERSISTENCIA ---
+# --- CEREBRO DE LAS IAs (BOTS AUTÓNOMOS) ---
+def ejecutar_logica_bots():
+  bots = [e for e in st.session_state.equipos if not e.es_humano]
+  if not bots:
+    return
+
+  for bot in bots:
+    if st.session_state.get("subasta_activa") and st.session_state.get(
+        "subasta_actual"
+    ):
+      j_sub = st.session_state.subasta_actual
+      if bot.presupuesto > st.session_state.puja_max + 2_000_000:
+        if st.session_state.lider_puja_eq != bot and random.random() < 0.6:
+          nueva_puja = st.session_state.puja_max + random.randint(
+              1_000_000, 5_000_000
+          )
+          if nueva_puja <= bot.presupuesto:
+            st.session_state.puja_max = nueva_puja
+            st.session_state.lider_puja_eq = bot
+
+    if random.random() < 0.4:
+      otros = [e for e in st.session_state.equipos if e.id_club != bot.id_club]
+      if otros:
+        objetivo_eq = random.choice(otros)
+        if objetivo_eq.plantilla:
+          candidato_j = max(objetivo_eq.plantilla, key=lambda x: x.grl)
+          media_actual_bot = bot.calcular_media_equipo()
+          if (
+              bot.presupuesto >= candidato_j.clausula
+              and candidato_j.grl >= media_actual_bot
+          ):
+            bot.presupuesto -= candidato_j.clausula
+            objetivo_eq.presupuesto += candidato_j.clausula
+            objetivo_eq.plantilla.remove(candidato_j)
+            bot.plantilla.append(candidato_j)
+
+
+def simular_partido_eliminatorio(eq1_nom, media1, eq2_nom, media2):
+  diferencia = media1 - media2
+  esp1 = max(0.5, 1.4 + (diferencia / 10.0))
+@@ -1142,7 +205,9 @@ def simular_partido_eliminatorio(eq1_nom, media1, eq2_nom, media2):
+      pen1 = random.randint(3, 5)
+      pen2 = random.randint(3, 5)
+    ganador = eq1_nom if pen1 > pen2 else eq2_nom
+    res_str = f"{eq1_nom} **{g1} - {g2}** {eq2_nom} *(Penaltis: {pen1}-{pen2})*"
+    res_str = (
+        f"{eq1_nom} **{g1} - {g2}** {eq2_nom} *(Penaltis: {pen1}-{pen2})*"
+    )
+    return ganador, res_str
+  else:
+    ganador = eq1_nom if g1 > g2 else eq2_nom
+@@ -1164,9 +229,7 @@ def guardar_partida():
+
+  data = {
+      "jornada_actual": st.session_state.jornada_actual,
+      "historial_resultados": st.session_state.get(
+          "historial_resultados", []
+      ),
+      "historial_resultados": st.session_state.get("historial_resultados", []),
+      "historial_copas": st.session_state.get("historial_copas", []),
+      "historial_mundial": st.session_state.get("historial_mundial", []),
+      "campeon_copa": campeon_nombre,
+@@ -1196,9 +259,7 @@ def cargar_partida():
+      st.session_state.historial_resultados = data["historial_resultados"]
+      st.session_state.historial_copas = data.get("historial_copas", [])
+      st.session_state.historial_mundial = data.get("historial_mundial", [])
+      st.session_state.equipos = [
+          Equipo.from_dict(e) for e in data["equipos"]
+      ]
+      st.session_state.equipos = [Equipo.from_dict(e) for e in data["equipos"]]
+
+      camp_nom = data.get("campeon_copa")
+      st.session_state.campeon_copa = (
+@@ -1249,7 +310,6 @@ def cargar_partida():
+  return False
+
+
+# --- INICIALIZACIÓN ---
+if "liga_inicializada" not in st.session_state:
+  if not cargar_partida():
+    NOMBRES = [
+@@ -1289,7 +349,6 @@ def cargar_partida():
+        "DEL",
+    ]
+
+
+    def generar_plantilla_base():
+      return [
+          Jugador(
+@@ -1301,7 +360,6 @@ def generar_plantilla_base():
+          for pos in POSICIONES
+      ]
+
+
+    clubes_info = [
+        (1, "Hunter x Hunter", "⚡"),
+        (2, "Garra Oscura", "🖤"),
+@@ -1319,7 +377,8 @@ def generar_plantilla_base():
+
+    clubes = []
+    for id_c, nom, emoji in clubes_info:
+      eq = Equipo(id_c, nom, emoji, pin_predeterminado=id_c)
+      es_humano = id_c == 1
+      eq = Equipo(id_c, nom, emoji, pin_predeterminado=id_c, es_humano=es_humano)
+      eq.plantilla = generar_plantilla_base()
+      clubes.append(eq)
+
+@@ -1356,32 +415,36 @@ def generar_plantilla_base():
+if "es_solo_admin" not in st.session_state:
+  st.session_state.es_solo_admin = False
+
+# --- PORTAL DE ACCESO ---
+if "mi_equipo" not in st.session_state and not st.session_state.es_solo_admin:
+  st.title("🎮 Portal de Acceso a la Liga - Beta 2.0")
+  st.title("🎮 Portal de Acceso a la Liga - Beta 2.0 (Con Bots IA)")
+  col_jugador, col_admin = st.columns(2)
+
+  with col_jugador:
+    st.subheader("Acceso a Clubes (PIN 1 - 12)")
+    eq_login_nombre = st.selectbox(
+        "Selecciona tu Club:",
+        [f"Nº {e.id_club} | {e.emoji} {e.nombre}" for e in st.session_state.equipos],
+        [
+            f"Nº {e.id_club} | {e.emoji} {e.nombre} ({'Humano' if e.es_humano else '🤖 Bot'})"
+            for e in st.session_state.equipos
+        ],
+    )
+    nombre_presi_input = st.text_input("Tu Nombre de Presidente (Opcional):")
+    pwd_login = st.text_input(
+        "PIN de Acceso del Club:", type="password", key="pwd_club_login"
+    )
+
+    if st.button("Ingresar al Club"):
+      eq_obj = next(
+          e
+      idx_SEL = [
+          f"Nº {e.id_club} | {e.emoji} {e.nombre} ({'Humano' if e.es_humano else '🤖 Bot'})"
+          for e in st.session_state.equipos
+          if f"Nº {e.id_club} | {e.emoji} {e.nombre}" == eq_login_nombre
+      )
+      ].index(eq_login_nombre)
+      eq_obj = st.session_state.equipos[idx_SEL]
+
+      if pwd_login.strip() == str(eq_obj.password):
+        eq_obj.es_humano = True
+        if nombre_presi_input.strip():
+          eq_obj.presidente = nombre_presi_input.strip()
+          guardar_partida()
+        guardar_partida()
+        st.session_state.mi_equipo = eq_obj
+        st.success(f"¡Acceso concedido a {eq_obj.nombre}!")
+        st.rerun()
+@@ -1390,9 +453,7 @@ def generar_plantilla_base():
+
+  with col_admin:
+    st.subheader("Acceso Administrador Supremo")
+    pwd = st.text_input(
+        "Clave de Administrador:", type="password", key="pwd_admin_main"
+    )
+    pwd = st.text_input("Clave de Administrador:", type="password", key="pwd_admin_main")
+    if st.button("Entrar como Administrador"):
+      if pwd == CLAVE_ADMIN:
+        st.session_state.es_solo_admin = True
+@@ -1403,14 +464,12 @@ def generar_plantilla_base():
+        st.error("Clave incorrecta.")
+  st.stop()
+
+# Reconectar equipo si recarga
+if not st.session_state.es_solo_admin and "mi_equipo" in st.session_state:
+  nombre_actual = st.session_state.mi_equipo.nombre
+  st.session_state.mi_equipo = next(
+      e for e in st.session_state.equipos if e.nombre == nombre_actual
+  )
+
+# --- BARRA LATERAL ---
+if st.session_state.es_solo_admin:
+  st.sidebar.title("👑 Administrador")
+  st.sidebar.write("Rol: **Comisionado Supremo**")
+@@ -1419,9 +478,7 @@ def generar_plantilla_base():
+  st.sidebar.title(f"👤 {mi_eq.presidente}")
+  st.sidebar.write(f"Club Nº {mi_eq.id_club}: **{mi_eq.emoji} {mi_eq.nombre}**")
+  st.sidebar.write(f"Presupuesto: **{mi_eq.presupuesto:,} €**")
+  st.sidebar.write(
+      f"Salarios Totales: **{mi_eq.calcular_salarios_totales():,} €**"
+  )
+  st.sidebar.write(f"Salarios Totales: **{mi_eq.calcular_salarios_totales():,} €**")
+
+st.sidebar.write(f"Jornada Actual: **{st.session_state.jornada_actual} / 11**")
+st.sidebar.markdown("---")
+@@ -1433,13 +490,18 @@ def generar_plantilla_base():
+  st.session_state.es_admin_autenticado = False
+  st.rerun()
+
+opciones_menu = ["📊 Clasificación", "🔥 Subastas", "🤝 Mercado & Cláusulas", "⚽ Resultados", "⚡ Pro Admin"]
+opciones_menu = [
+    "📊 Clasificación",
+    "🔥 Subastas",
+    "🤝 Mercado & Cláusulas",
+    "⚽ Resultados",
+    "⚡ Pro Admin",
+]
+if not st.session_state.es_solo_admin:
+  opciones_menu.insert(1, "📋 Mi Plantilla")
+
+menu = st.sidebar.radio("Navegación", opciones_menu)
+
+# 1. CLASIFICACIÓN
+if menu == "📊 Clasificación":
+  st.header("🏆 Tabla de Posiciones")
+  datos = []
+@@ -1450,9 +512,11 @@ def generar_plantilla_base():
+  )
+  for idx, eq in enumerate(ordenados, 1):
+    zona = "🏆 Copa España" if idx <= 4 else ""
+    tipo_cnt = "👤 Humano" if eq.es_humano else "🤖 Bot IA"
+    datos.append({
+        "Pos": idx,
+        "Club": f"{eq.emoji} {eq.nombre}",
+        "Control": tipo_cnt,
+        "Presidente": eq.presidente,
+        "Pts": eq.puntos,
+        "PJ": eq.pj,
+@@ -1469,7 +533,6 @@ def generar_plantilla_base():
+    })
+  st.table(datos)
+
+# 2. MI PLANTILLA Y TÁCTICA
+elif menu == "📋 Mi Plantilla":
+  mi_eq = st.session_state.mi_equipo
+  st.header(f"🛡️ Gestión Táctica y Plantilla - {mi_eq.nombre}")
+@@ -1621,9 +684,8 @@ def generar_plantilla_base():
+  ]
+  st.dataframe(datos_plantilla, use_container_width=True, hide_index=True)
+
+# 3. SUBASTAS
+elif menu == "🔥 Subastas":
+  st.header("🔥 Subasta Abierta")
+  st.header("🔥 Subasta Abierta (Con Actividad de Bots IA)")
+  j_actual = st.session_state.subasta_actual
+  lider_nombre = (
+      st.session_state.lider_puja_eq.nombre
+@@ -1635,10 +697,14 @@ def generar_plantilla_base():
+      f" {j_actual.grl})"
+  )
+
+  ejecutar_logica_bots()
+
+  if st.session_state.get("subasta_activa") and st.session_state.get(
+      "hora_fin_subasta"
+  ):
+    tiempo_restante = st.session_state.hora_fin_subasta - datetime.datetime.now()
+    tiempo_restante = (
+        st.session_state.hora_fin_subasta - datetime.datetime.now()
+    )
+    if tiempo_restante.total_seconds() > 0:
+      m, s = divmod(int(tiempo_restante.total_seconds()), 60)
+      h, m = divmod(m, 60)
+@@ -1671,7 +737,6 @@ def generar_plantilla_base():
+      else:
+        st.error("No tienes suficiente presupuesto.")
+
+# 4. MERCADO ENTRE CLUBES & CLÁUSULAS
+elif menu == "🤝 Mercado & Cláusulas":
+  st.header("🤝 Mercado de Fichajes y Cláusulas de Rescisión")
+
+@@ -1687,7 +752,9 @@ def generar_plantilla_base():
+      st.warning("Entra como club para negociar.")
+    else:
+      mi_eq = st.session_state.mi_equipo
+      otros_equipos = [e for e in st.session_state.equipos if e.id_club != mi_eq.id_club]
+      otros_equipos = [
+          e for e in st.session_state.equipos if e.id_club != mi_eq.id_club
+      ]
+      eq_destino_nombre = st.selectbox(
+          "Selecciona el club propietario:", [e.nombre for e in otros_equipos]
+      )
+@@ -1746,7 +813,9 @@ def generar_plantilla_base():
+            f"{j.nombre} ({e.nombre}) - Cláusula: {j.clausula:,} €"
+            for e, j in todos_los_jugadores
+        ]
+        sel_clausula = st.selectbox("Selecciona jugador a clausular:", opciones_clausulas)
+        sel_clausula = st.selectbox(
+            "Selecciona jugador a clausular:", opciones_clausulas
+        )
+        idx_sel = opciones_clausulas.index(sel_clausula)
+        eq_propietario, jugador_clausulado = todos_los_jugadores[idx_sel]
+
+@@ -1787,8 +856,8 @@ def generar_plantilla_base():
+      if ofertas_mias:
+        for i, oferta in enumerate(ofertas_mias):
+          st.write(
+              f"📌 **{oferta['comprador']}** ofrece **{oferta['monto']:,} €**"
+              f" por tu jugador **{oferta['jugador']}**"
+              f"📌 **{oferta['comprador']}** ofrece **{oferta['monto']:,} €** por"
+              f" tu jugador **{oferta['jugador']}**"
+          )
+          col_a, col_r = st.columns(2)
+          with col_a:
+@@ -1825,7 +894,6 @@ def generar_plantilla_base():
+      else:
+        st.info("No tienes ofertas pendientes en este momento.")
+
+# 5. RESULTADOS
+elif menu == "⚽ Resultados":
+  st.header("⚽ Historial General de Competiciones")
+  tab_liga, tab_copa, tab_mundial = st.tabs(
+@@ -1852,9 +920,8 @@ def generar_plantilla_base():
+    else:
+      st.info("Mundial de Clubes pendiente.")
+
+# 6. PANEL PRO ADMIN
+elif menu == "⚡ Pro Admin":
+  st.header("⚡ Panel de Control Pro Admin - Beta 2.0")
+  st.header("⚡ Panel de Control Pro Admin - Beta 2.0 (Con Bots IA)")
+
+  if not st.session_state.es_admin_autenticado:
+    pwd = st.text_input(
+@@ -1868,8 +935,10 @@ def generar_plantilla_base():
+      else:
+        st.error("Clave incorrecta.")
+  else:
+    # --- BOTÓN DE NUEVA TEMPORADA (COBRO DE SALARIOS) ---
+    st.info("💡 Gestiona torneos, simula jornadas o avanza de temporada.")
+    st.info(
+        "💡 Gestiona torneos, simula jornadas, configura bots o avanza de"
+        " temporada."
+    )
+    col_temp_btn1, col_temp_btn2 = st.columns([2, 1])
+    with col_temp_btn1:
+      st.warning(
+@@ -1878,7 +947,6 @@ def generar_plantilla_base():
+      )
+    with col_temp_btn2:
+      if st.button("🌟 Iniciar Siguiente Temporada", type="primary"):
+        # Cobrar salarios antes de reiniciar
+        for eq in st.session_state.equipos:
+          total_salarios = eq.calcular_salarios_totales()
+          eq.presupuesto -= total_salarios
+@@ -1896,24 +964,24 @@ def generar_plantilla_base():
+        st.session_state.historial_mundial = []
+        st.session_state.campeon_copa = None
+        guardar_partida()
+        st.success(
+            "¡Nueva temporada iniciada con éxito! Salarios descontados de las"
+            " arcas de los clubes."
+        )
+        st.success("¡Nueva temporada iniciada con éxito! Salarios descontados.")
+        st.rerun()
+
+    st.markdown("---")
+    tab1, tab2, tab3, tab4 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "⚽ Partidos & Mercado",
+        "🏆 Torneos Post-Liga",
+        "🤖 Gestión de Bots",
+        "💰 Gestor Financiero",
+        "🛠️ Modificar Stats & PINs",
+    ])
+
+    with tab1:
+      st.subheader(f"Simular Jornada {st.session_state.jornada_actual}")
+      if st.session_state.jornada_actual <= 11:
+        if st.button("🚀 Simular Partidos"):
+        if st.button("🚀 Simular Partidos & Acciones IA"):
+          ejecutar_logica_bots()
+
+          equipos_shuffled = st.session_state.equipos.copy()
+          random.shuffle(equipos_shuffled)
+          res_jornada = []
+@@ -1924,8 +992,12 @@ def generar_plantilla_base():
+                visitante.calcular_media_equipo(),
+            )
+            dif = (media_loc + 3) - media_vis
+            gl = max(0, int(random.gauss(max(0.5, 1.5 + (dif / 10.0)), 0.9)))
+            gv = max(0, int(random.gauss(max(0.3, 1.1 - (dif / 10.0)), 0.9)))
+            gl = max(
+                0, int(random.gauss(max(0.5, 1.5 + (dif / 10.0)), 0.9))
+            )
+            gv = max(
+                0, int(random.gauss(max(0.3, 1.1 - (dif / 10.0)), 0.9))
+            )
+
+            local.pj += 1
+            visitante.pj += 1
+@@ -1959,7 +1031,7 @@ def generar_plantilla_base():
           )
           st.session_state.jornada_actual += 1
           guardar_partida()
-          st.success(f"¡Jornada simulada con éxito!")
+          st.success("¡Jornada simulada!")
+          st.success("¡Jornada simulada y acciones de bots procesadas!")
           st.rerun()
       else:
-        st.warning("Se han jugado todas las jornadas de la liga.")
-
-    with tab2:
-      st.subheader("🏆 Torneos Post-Liga (Copa de España y Mundial)")
-      col_copa1, col_copa2 = st.columns(2)
-
-      with col_copa1:
-        st.write("### Copa de España")
-        if st.button("🇪🇸 Simular Copa de España"):
-          clasificados_copa = sorted(
-              st.session_state.equipos, key=lambda x: x.puntos, reverse=True
-          )[:4]
-          if len(clasificados_copa) >= 4:
-            semifinal_1 = random.sample(clasificados_copa, 2)
-            restantes = [
-                e
-                for e in clasificados_copa
-                if e not in semifinal_1
-            ]
-            semifinal_2 = restantes
-
-            res_s1 = random.choice(semifinal_1)
-            res_s2 = random.choice(semifinal_2)
-
-            st.session_state.campeon_copa = res_s1
-            texto_copa = (
-                f"🏆 **Copa de España Simulada**\n\n- Campeón: **{res_s1.emoji}"
-                f" {res_s1.nombre}**\n- Subcampeón: **{res_s2.emoji}"
-                f" {res_s2.nombre}**"
-            )
-            if "historial_copas" not in st.session_state:
-              st.session_state.historial_copas = []
-            st.session_state.historial_copas.append(texto_copa)
-            guardar_partida()
-            st.success(
-                f"¡Copa simulada! Campeón: {res_s1.emoji} {res_s1.nombre}"
-            )
-            st.rerun()
-          else:
-            st.warning("Se necesitan al menos 4 equipos en la liga.")
-
-      with col_copa2:
-        st.write("### Mundial de Clubes")
-        if st.button("🌍 Simular Mundial de Clubes"):
-          candidato_mundial = max(
-              st.session_state.equipos, key=lambda x: x.calcular_media_equipo()
-          )
-          texto_mundial = (
-              f"🌍 **Mundial de Clubes Simulado**\n\n- Campeón Mundial:"
-              f" **{candidato_mundial.emoji} {candidato_mundial.nombre}**"
-          )
-          if "historial_mundial" not in st.session_state:
-            st.session_state.historial_mundial = []
-          st.session_state.historial_mundial.append(texto_mundial)
+        st.info("Liga regular completada.")
+@@ -2054,78 +1126,43 @@ def generar_plantilla_base():
+              "---",
+              "### 🏆 Final",
+              f"- {res_final}",
+              (
+                  "\n🎉 **¡"
+                  f"{obj_campeon.emoji} {obj_campeon.nombre} es CAMPEÓN de"
+                  ' Copa!**'
+              ),
+              f"\n🎉 **¡{obj_campeon.emoji} {obj_campeon.nombre} es CAMPEÓN de Copa!**",
+          ]
           guardar_partida()
-          st.success(
-              f"¡Mundial simulado! Campeón: {candidato_mundial.emoji}"
-              f" {candidato_mundial.nombre}"
+          st.success("¡Copa simulada!")
+          st.rerun()
+      else:
+        st.warning("La Liga debe llegar a la Jornada 11.")
+
+      st.markdown("---")
+      st.subheader("🌍 Mundial de Clubes")
+      if st.session_state.get("campeon_copa"):
+        champ = st.session_state.campeon_copa
+        if isinstance(champ, str):
+          champ = next(
+              (e for e in st.session_state.equipos if e.nombre == champ), None
           )
+        if champ and st.button("👑 Simular Mundial"):
+          PAISES = ["Japón 🇯🇵", "Brasil 🇧🇷", "EEUU 🇺🇸", "Alemania 🇩🇪"]
+          NOMBRES_R = ["Sakura Dragons", "Samba Stars", "Liberty FC", "Bavaria"]
+          rivales = [
+              {"nombre": f"🌐 {NOMBRES_R[i]} ({PAISES[i]})", "media": random.randint(75, 88)}
+              for i in range(3)
+          ]
+          nombre_champ = f"{champ.emoji} {champ.nombre}"
+          gan_sf1, res_sf1 = simular_partido_eliminatorio(
+              nombre_champ,
+              champ.calcular_media_equipo(),
+              rivales[0]["nombre"],
+              rivales[0]["media"],
+          )
+          gan_sf2, res_sf2 = simular_partido_eliminatorio(
+              rivales[1]["nombre"],
+              rivales[1]["media"],
+              rivales[2]["nombre"],
+              rivales[2]["media"],
+          )
+          med1 = (
+              champ.calcular_media_equipo()
+              if gan_sf1 == nombre_champ
+              else next(r["media"] for r in rivales if r["nombre"] == gan_sf1)
+          )
+          med2 = (
+              champ.calcular_media_equipo()
+              if gan_sf2 == nombre_champ
+              else next(r["media"] for r in rivales if r["nombre"] == gan_sf2)
+          )
+          gan_mundial, res_final = simular_partido_eliminatorio(
+              gan_sf1, med1, gan_sf2, med2
+          )
+          st.session_state.historial_mundial = [
+              "### 🥊 Semis Mundial",
+              f"- {res_sf1}",
+              f"- {res_sf2}",
+              "---",
+              "### 👑 Final Mundial",
+              f"- {res_final}",
+              f"\n🌍 **¡{gan_mundial} Campeón del Mundial de Clubes!**",
+          ]
+    with tab3:
+      st.subheader("🤖 Configuración de Equipos Bot vs Humano")
+      st.write(
+          "Selecciona qué equipos son controlados por la Inteligencia"
+          " Artificial (Bots) y cuáles por jugadores humanos."
+      )
+
+      for eq in st.session_state.equipos:
+        c1, c2 = st.columns([3, 1])
+        c1.write(
+            f"{eq.emoji} **{eq.nombre}** (Actual:"
+            f" {'🤖 Bot' if not eq.es_humano else '👤 Humano'})"
+        )
+        estado_nuevo = c2.toggle(
+            "Es Humano", value=eq.es_humano, key=f"bot_toggle_{eq.id_club}"
+        )
+        if estado_nuevo != eq.es_humano:
+          eq.es_humano = estado_nuevo
+          guardar_partida()
+          st.success("¡Mundial simulado!")
           st.rerun()
 
     with tab3:
-      st.subheader("🤖 Configuración y Automatización de Bots IA")
-      st.write(
-          "Aquí puedes activar o desactivar el comportamiento automático de los"
-          " bots en el mercado."
+    with tab4:
+      st.subheader("💵 Inyección / Descuento de Presupuesto")
+      eq_destino = st.selectbox(
+          "Club:", [e.nombre for e in st.session_state.equipos]
+          "Club:",
+          [e.nombre for e in st.session_state.equipos],
+          key="adm_presup",
       )
-      if st.button("🤖 Ejecutar Ciclo de IA Manualmente"):
-        ejecutar_logica_bots()
-        guardar_partida()
-        st.success("¡Ciclo de inteligencia artificial ejecutado con éxito!")
+      monto_cambio = st.number_input("Monto (€):", step=5_000_000)
+      monto_cambio = st.number_input("Monto (€):", step=5_000_000, key="adm_monto")
+      if st.button("Aplicar Transacción"):
+        for e in st.session_state.equipos:
+          if e.nombre == eq_destino:
+@@ -2134,15 +1171,17 @@ def generar_plantilla_base():
+            st.success("¡Presupuesto actualizado!")
+            st.rerun()
 
     with tab4:
-      st.subheader("💰 Gestor Financiero Global")
-      monto_inyeccion = st.number_input(
-          "Cantidad de dinero a inyectar/retirar (€):",
-          step=10_000_000,
-          value=10_000_000,
-      )
-      club_afectado = st.selectbox(
-          "Selecciona el club:", [e.nombre for e in st.session_state.equipos]
-      )
-      eq_afectado = next(
-          e for e in st.session_state.equipos if e.nombre == club_afectado
-      )
-
-      col_inj1, col_inj2 = st.columns(2)
-      with col_inj1:
-        if st.button("➕ Inyectar Fondos"):
-          eq_afectado.presupuesto += monto_inyeccion
-          guardar_partida()
-          st.success(
-              f"¡Se han añadido {monto_inyeccion:,} € a {eq_afectado.nombre}!"
-          )
-          st.rerun()
-      with col_inj2:
-        if st.button("➖ Retirar Fondos"):
-          eq_afectado.presupuesto = max(
-              0, eq_afectado.presupuesto - monto_inyeccion
-          )
-          guardar_partida()
-          st.warning(
-              f"¡Se han retirado fondos al club {eq_afectado.nombre}!"
-          )
-          st.rerun()
-
     with tab5:
-      st.subheader("🛠️ Modificar Estadísticas de Clubes y PINs")
-      club_mod = st.selectbox(
-          "Selecciona el club a editar:",
+      st.subheader("✏️ Modificar Puntos y PINs")
+      eq_edit = st.selectbox(
+          "Club a editar:", [e.nombre for e in st.session_state.equipos]
+          "Club a editar:",
           [e.nombre for e in st.session_state.equipos],
-          key="mod_club_select",
+          key="adm_edit",
       )
-      eq_mod = next(
-          e for e in st.session_state.equipos if e.nombre == club_mod
-      )
-
-      nuevo_pin = st.text_input("Nuevo PIN de Acceso:", value=eq_mod.password)
-      nuevo_presi = st.text_input(
-          "Nombre del Presidente:", value=eq_mod.presidente
-      )
-      es_humano_bool = st.checkbox("¿Controlado por Humano?", value=eq_mod.es_humano)
-
-      if st.button("💾 Guardar Cambios del Club"):
-        eq_mod.password = str(nuevo_pin).strip()
-        eq_mod.presidente = nuevo_presi.strip()
-        eq_mod.es_humano = es_humano_bool
+      e_obj = next(e for e in st.session_state.equipos if e.nombre == eq_edit)
+      nuevos_pts = st.number_input("Puntos:", value=e_obj.puntos, min_value=0)
+      nuevo_pin = st.text_input("PIN:", value=str(e_obj.password))
+      if st.button("Guardar Cambios"):
+      if st.button("Guardar Cambios de Club"):
+        e_obj.puntos = nuevos_pts
+        e_obj.password = nuevo_pin.strip()
         guardar_partida()
-        st.success(f"¡Datos de {eq_mod.nombre} actualizados correctamente!")
-        st.rerun()
