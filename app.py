@@ -215,8 +215,10 @@ def cargar_partida():
 
       camp_nom = data.get("campeon_copa")
       if camp_nom:
+        # Aseguramos buscar tanto por nombre exacto como por coincidencia parcial
         st.session_state.campeon_copa = next(
-            (e for e in st.session_state.equipos if e.nombre == camp_nom), None
+            (e for e in st.session_state.equipos if e.nombre in str(camp_nom)),
+            None,
         )
       else:
         st.session_state.campeon_copa = None
@@ -926,7 +928,7 @@ elif menu == "⚡ Pro Admin":
               "### 🏆 Gran Final",
               f"- {res_final}",
               (
-                  "\\n🎉 **¡"
+                  "\n🎉 **¡"
                   f"{obj_campeon.emoji} {obj_campeon.nombre} es el CAMPEÓN de"
                   ' la Copa de España!**'
               ),
@@ -950,80 +952,88 @@ elif menu == "⚡ Pro Admin":
 
       if st.session_state.get("campeon_copa"):
         champ = st.session_state.campeon_copa
-        st.write(
-            f"Representante de la Liga: **{champ.emoji} {champ.nombre}**"
-            f" ({champ.calcular_media_equipo()} GRL)"
-        )
-
-        if st.button("👑 Simular Mundial de Clubes"):
-          PAISES_RIVALES = [
-              "Japón 🇯🇵",
-              "Brasil 🇧🇷",
-              "Estados Unidos 🇺🇸",
-              "Alemania 🇩🇪",
-              "Inglaterra 🇬🇧",
-              "Argentina 🇦🇷",
-          ]
-          NOMBRES_RIVALES = [
-              "Sakura Dragons",
-              "Samba Stars FC",
-              "Liberty Strikers",
-              "Bavaria United",
-              "London Titans",
-              "Pampa Express",
-          ]
-
-          rivales = []
-          indices = random.sample(range(len(NOMBRES_RIVALES)), 3)
-          for idx in indices:
-            rivales.append({
-                "nombre": (
-                    f"🌐 {NOMBRES_RIVALES[idx]} ({PAISES_RIVALES[idx]})"
-                ),
-                "media": random.randint(75, 88),
-            })
-
-          r1, r2, r3 = rivales[0], rivales[1], rivales[2]
-
-          gan_sf1, res_sf1 = simular_partido_eliminatorio(
-              f"{champ.emoji} {champ.nombre}",
-              champ.calcular_media_equipo(),
-              r1["nombre"],
-              r1["media"],
-          )
-          gan_sf2, res_sf2 = simular_partido_eliminatorio(
-              r2["nombre"], r2["media"], r3["nombre"], r3["media"]
+        # Asegurarnos de recuperar el objeto Equipo si por alguna razón está guardado como texto
+        if isinstance(champ, str):
+          champ = next(
+              (e for e in st.session_state.equipos if e.nombre == champ), None
           )
 
-          media_fin1 = (
-              champ.calcular_media_equipo()
-              if gan_sf1 == f"{champ.emoji} {champ.nombre}"
-              else next(r["media"] for r in rivales if r["nombre"] == gan_sf1)
-          )
-          media_fin2 = (
-              champ.calcular_media_equipo()
-              if gan_sf2 == f"{champ.emoji} {champ.nombre}"
-              else next(r["media"] for r in rivales if r["nombre"] == gan_sf2)
+        if champ:
+          st.write(
+              f"Representante de la Liga: **{champ.emoji} {champ.nombre}**"
+              f" ({champ.calcular_media_equipo()} GRL)"
           )
 
-          gan_mundial, res_final = simular_partido_eliminatorio(
-              gan_sf1, media_fin1, gan_sf2, media_fin2
-          )
+          if st.button("👑 Simular Mundial de Clubes"):
+            PAISES_RIVALES = [
+                "Japón 🇯🇵",
+                "Brasil 🇧🇷",
+                "Estados Unidos 🇺🇸",
+                "Alemania 🇩🇪",
+                "Inglaterra 🇬🇧",
+                "Argentina 🇦🇷",
+            ]
+            NOMBRES_RIVALES = [
+                "Sakura Dragons",
+                "Samba Stars FC",
+                "Liberty Strikers",
+                "Bavaria United",
+                "London Titans",
+                "Pampa Express",
+            ]
 
-          res_mundial = [
-              "### 🥊 Semifinales Internacionales",
-              f"- **Semifinal 1:** {res_sf1}",
-              f"- **Semifinal 2:** {res_sf2}",
-              "---",
-              "### 👑 Gran Final del Mundial",
-              f"- {res_final}",
-              f"\\n🌍 **¡{gan_mundial} se corona CAMPEÓN MUNDIAL DE CLUBES!**",
-          ]
+            rivales = []
+            indices = random.sample(range(len(NOMBRES_RIVALES)), 3)
+            for idx in indices:
+              rivales.append({
+                  "nombre": (
+                      f"🌐 {NOMBRES_RIVALES[idx]} ({PAISES_RIVALES[idx]})"
+                  ),
+                  "media": random.randint(75, 88),
+              })
 
-          st.session_state.historial_mundial = res_mundial
-          guardar_partida()
-          st.success("¡Mundial de Clubes simulado con éxito!")
-          st.rerun()
+            r1, r2, r3 = rivales[0], rivales[1], rivales[2]
+            nombre_champ = f"{champ.emoji} {champ.nombre}"
+            media_champ = champ.calcular_media_equipo()
+
+            gan_sf1, res_sf1 = simular_partido_eliminatorio(
+                nombre_champ, media_champ, r1["nombre"], r1["media"]
+            )
+            gan_sf2, res_sf2 = simular_partido_eliminatorio(
+                r2["nombre"], r2["media"], r3["nombre"], r3["media"]
+            )
+
+            media_fin1 = (
+                media_champ
+                if gan_sf1 == nombre_champ
+                else next(r["media"] for r in rivales if r["nombre"] == gan_sf1)
+            )
+            media_fin2 = (
+                media_champ
+                if gan_sf2 == nombre_champ
+                else next(r["media"] for r in rivales if r["nombre"] == gan_sf2)
+            )
+
+            gan_mundial, res_final = simular_partido_eliminatorio(
+                gan_sf1, media_fin1, gan_sf2, media_fin2
+            )
+
+            res_mundial = [
+                "### 🥊 Semifinales Internacionales",
+                f"- **Semifinal 1:** {res_sf1}",
+                f"- **Semifinal 2:** {res_sf2}",
+                "---",
+                "### 👑 Gran Final del Mundial",
+                f"- {res_final}",
+                f"\n🌍 **¡{gan_mundial} se corona CAMPEÓN MUNDIAL DE CLUBES!**",
+            ]
+
+            st.session_state.historial_mundial = res_mundial
+            guardar_partida()
+            st.success("¡Mundial de Clubes simulado con éxito!")
+            st.rerun()
+        else:
+          st.warning("No se encontró el objeto del equipo campeón.")
       else:
         st.info(
             "Para jugar el Mundial de Clubes primero se debe simular y obtener"
