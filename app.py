@@ -472,7 +472,7 @@ if menu == "📊 Clasificación":
         "GC": eq.gc,
         "DG": eq.dg,
         "Presupuesto": f"{eq.presupuesto:,} €",
-        "Salarios": f"{eq.calcular_salarios_totales()::,} €",
+        "Salarios": f"{eq.calcular_salarios_totales():,} €",
         "Media 11": eq.calcular_media_equipo(),
         "Clasificación": zona,
     })
