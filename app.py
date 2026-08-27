@@ -46,19 +46,36 @@ class Equipo:
     def dg(self):
         return self.gf - self.gc
 
-    def calcular_media_equipo(self):
-        if not self.plantilla:
-            return 60
-        # Si hay 11 titulares guardados en sesión, calcula la media sobre ellos
+    def obtener_titulares_validos(self):
         key_titulares = f"titulares_{self.id_club}"
         if key_titulares in st.session_state and st.session_state[key_titulares]:
-            titulares = [j for j in self.plantilla if j.nombre in st.session_state[key_titulares]]
-            if titulares:
-                return sum(j.grl for j in titulares) // len(titulares)
-        
-        # Si no hay titulares seleccionados, toma los mejores 11
-        mejores = sorted(self.plantilla, key=lambda x: x.grl, reverse=True)[:11]
-        return sum(j.grl for j in mejores) // len(mejores)
+            nombres_titulares = st.session_state[key_titulares]
+            titulares = [j for j in self.plantilla if j.nombre in nombres_titulares]
+            if len(titulares) == 11:
+                return titulares
+        # Si no hay alineación válida guardada, elige automáticamente los mejores por posición
+        mejores = []
+        for pos in ["POR", "DEF", "DEF", "DEF", "DEF", "MED", "MED", "MED", "DEL", "DEL", "DEL"]:
+            candidatos = [j for j in self.plantilla if j.posicion == pos and j not in mejores]
+            if candidatos:
+                candidatos.sort(key=lambda x: x.grl, reverse=True)
+                mejores.append(candidatos[0])
+            else:
+                restantes = [j for j in self.plantilla if j not in mejores]
+                if restantes:
+                    restantes.sort(key=lambda x: x.grl, reverse=True)
+                    mejores.append(restantes[0])
+        return mejores
+
+    def calcular_media_equipo(self):
+        titulares = self.obtener_titulares_validos()
+        if not titulares:
+            return 60
+        media_base = sum(j.grl for j in titulares) // len(titulares)
+        # Penalización si faltan jugadores para completar 11
+        if len(titulares) < 11:
+            media_base -= (11 - len(titulares)) * 5
+        return max(40, media_base)
 
     def to_dict(self):
         return {
@@ -113,8 +130,8 @@ def cargar_partida():
         st.session_state.mercado_pool = [Jugador.from_dict(j) for j in data["mercado_pool"]]
         st.session_state.subasta_idx = data["subasta_idx"]
         st.session_state.puja_max = data["puja_max"]
-        
         st.session_state.subasta_activa = data.get("subasta_activa", False)
+        
         if data.get("hora_fin_subasta"):
             st.session_state.hora_fin_subasta = datetime.datetime.fromisoformat(data["hora_fin_subasta"])
         else:
@@ -199,7 +216,6 @@ if "mi_equipo" not in st.session_state and not st.session_state.es_solo_admin:
 
     with col_jugador:
         st.subheader("Acceso a Clubes (PIN 1 - 12)")
-        
         eq_login_nombre = st.selectbox("Selecciona tu Club:", [f"Nº {e.id_club} | {e.emoji} {e.nombre}" for e in st.session_state.equipos])
         nombre_presi_input = st.text_input("Tu Nombre de Presidente (Opcional):")
         pwd_login = st.text_input("PIN de Acceso del Club (del 1 al 12 por defecto):", type="password", key="pwd_club_login")
@@ -235,7 +251,7 @@ if not st.session_state.es_solo_admin and "mi_equipo" in st.session_state:
     nombre_actual = st.session_state.mi_equipo.nombre
     st.session_state.mi_equipo = next(e for e in st.session_state.equipos if e.nombre == nombre_actual)
 
-# --- BARRA LATERAL Y BOTÓN DE CERRAR SESIÓN ---
+# --- BARRA LATERAL ---
 if st.session_state.es_solo_admin:
     st.sidebar.title("👑 Administrador")
     st.sidebar.write("Rol: **Comisionado Supremo**")
@@ -281,7 +297,7 @@ if menu == "📊 Clasificación":
             "GC": eq.gc,
             "DG": eq.dg,
             "Presupuesto": f"{eq.presupuesto:,} €",
-            "Media GRL": eq.calcular_media_equipo()
+            "Media 11": eq.calcular_media_equipo()
         })
     st.table(datos)
 
@@ -311,38 +327,50 @@ elif menu == "📋 Mi Plantilla":
 
     posiciones_requeridas = TACTICAS[esquema_sel]
     key_titulares = f"titulares_{mi_eq.id_club}"
+
+    # Recuperar selección previa
+    titulares_previos = st.session_state.get(key_titulares, [])
     
-    if key_titulares not in st.session_state or len(st.session_state[key_titulares]) != 11:
-        st.session_state[key_titulares] = [j.nombre for j in sorted(mi_eq.plantilla, key=lambda x: x.grl, reverse=True)[:11]]
-
-    nombres_plantilla = [j.nombre for j in mi_eq.plantilla]
-    titulares_actuales = [n for n in st.session_state[key_titulares] if n in nombres_plantilla]
-    while len(titulares_actuales) < 11 and len(nombres_plantilla) >= 11:
-        faltante = next(n for n in nombres_plantilla if n not in titulares_actuales)
-        titulares_actuales.append(faltante)
-
-    st.subheader("⚽ Selección del 11 Titular")
+    st.subheader("⚽ Selección del 11 Titular (Filtrado por Posición)")
     
     nuevos_titulares = []
     cols = st.columns(3)
     
     for idx, pos_req in enumerate(posiciones_requeridas):
         col = cols[idx % 3]
-        default_j = titulares_actuales[idx] if idx < len(titulares_actuales) else nombres_plantilla[0]
-        opciones = [n for n in nombres_plantilla if n not in nuevos_titulares or n == default_j]
         
+        # Filtrar únicamente jugadores de la plantilla que jueguen en esta posición concreta
+        candidatos_pos = [j for j in mi_eq.plantilla if j.posicion == pos_req]
+        
+        # Opciones disponibles que no hayan sido seleccionadas en puestos anteriores
+        opciones_disponibles = [j.nombre for j in candidatos_pos if j.nombre not in nuevos_titulares]
+
+        # Si no hay suficientes jugadores de esa posición especifica, se amplía a la plantilla
+        if not opciones_disponibles:
+            opciones_disponibles = [j.nombre for j in mi_eq.plantilla if j.nombre not in nuevos_titulares]
+
+        # Si toda la plantilla ya fue colocada, mostramos todos los nombres
+        if not opciones_disponibles:
+            opciones_disponibles = [j.nombre for j in mi_eq.plantilla]
+
+        # Seleccionar valor predeterminado válido
+        predeterminado = opciones_disponibles[0]
+        if idx < len(titulares_previos) and titulares_previos[idx] in opciones_disponibles:
+            predeterminado = titulares_previos[idx]
+
         opcion_elegida = col.selectbox(
             f"Puesto {idx+1} ({pos_req}):",
-            options=opciones,
-            index=opciones.index(default_j) if default_j in opciones else 0,
+            options=opciones_disponibles,
+            index=opciones_disponibles.index(predeterminado),
             key=f"slot_{mi_eq.id_club}_{idx}"
         )
         nuevos_titulares.append(opcion_elegida)
 
     st.session_state[key_titulares] = nuevos_titulares
 
+    # Cálculo de métricas
     objetos_titulares = [j for j in mi_eq.plantilla if j.nombre in nuevos_titulares]
-    media_titulares = sum(j.grl for j in objetos_titulares) // len(objetos_titulares) if objetos_titulares else 0
+    media_titulares = mi_eq.calcular_media_equipo()
 
     st.markdown("---")
     c1, c2, c3 = st.columns(3)
@@ -440,7 +468,7 @@ elif menu == "⚡ Pro Admin":
         with tab1:
             st.subheader(f"Simular Jornada {st.session_state.jornada_actual}")
             if st.session_state.jornada_actual <= 11:
-                if st.button("🚀 Simular Todos los Partidos"):
+                if st.button("🚀 Simular Partidos (Basado en Plantillas)"):
                     equipos_shuffled = st.session_state.equipos.copy()
                     random.shuffle(equipos_shuffled)
                     
@@ -449,9 +477,18 @@ elif menu == "⚡ Pro Admin":
                         local = equipos_shuffled[i]
                         visitante = equipos_shuffled[i+1]
                         
-                        diff = (local.calcular_media_equipo() - visitante.calcular_media_equipo()) / 8.0
-                        gl = max(0, int(random.gauss(1.6 + diff, 1.2)))
-                        gv = max(0, int(random.gauss(1.1 - diff, 1.2)))
+                        media_loc = local.calcular_media_equipo()
+                        media_vis = visitante.calcular_media_equipo()
+                        
+                        # Cálculo del rendimiento realista basado en datos del 11 titular + factor campo
+                        diferencia_grl = (media_loc + 3) - media_vis
+                        
+                        # Asignación de goles según diferencia de calidad real entre 11 titulares
+                        esperanza_loc = max(0.5, 1.5 + (diferencia_grl / 10.0))
+                        esperanza_vis = max(0.3, 1.1 - (diferencia_grl / 10.0))
+                        
+                        gl = max(0, int(random.gauss(esperanza_loc, 0.9)))
+                        gv = max(0, int(random.gauss(esperanza_vis, 0.9)))
                         
                         local.pj += 1
                         visitante.pj += 1
@@ -474,12 +511,12 @@ elif menu == "⚡ Pro Admin":
                             local.pe += 1
                             visitante.pe += 1
                             
-                        res_jornada.append(f"{local.emoji} {local.nombre} **{gl} - {gv}** {visitante.nombre} {visitante.emoji}")
+                        res_jornada.append(f"{local.emoji} {local.nombre} ({media_loc} GRL) **{gl} - {gv}** ({media_vis} GRL) {visitante.nombre} {visitante.emoji}")
                     
                     st.session_state.historial_resultados.append((st.session_state.jornada_actual, res_jornada))
                     st.session_state.jornada_actual += 1
                     guardar_partida()
-                    st.success("¡Jornada simulada y guardada!")
+                    st.success("¡Jornada simulada comparando las alineaciones de los equipos!")
                     st.rerun()
             else:
                 st.info("Temporada regular completada.")
