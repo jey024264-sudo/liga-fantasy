@@ -126,7 +126,6 @@ def simular_partido_eliminatorio(eq1_nom, media1, eq2_nom, media2):
 
 # --- FUNCIONES DE PERSISTENCIA ---
 def guardar_partida():
-    # Guardamos únicamente el NOMBRE del campeón de copa en lugar del objeto
     campeon_nombre = None
     if st.session_state.get("campeon_copa"):
         campeon_nombre = st.session_state.campeon_copa.nombre if isinstance(st.session_state.campeon_copa, Equipo) else st.session_state.campeon_copa
@@ -150,40 +149,45 @@ def guardar_partida():
 
 def cargar_partida():
     if os.path.exists(ARCHIVO_GUARDADO):
-        with open(ARCHIVO_GUARDADO, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        st.session_state.jornada_actual = data["jornada_actual"]
-        st.session_state.historial_resultados = data["historial_resultados"]
-        st.session_state.historial_copas = data.get("historial_copas", [])
-        st.session_state.historial_mundial = data.get("historial_mundial", [])
-        st.session_state.equipos = [Equipo.from_dict(e) for e in data["equipos"]]
-        
-        # Recuperar objeto Campeón de Copa desde su nombre
-        camp_nom = data.get("campeon_copa")
-        if camp_nom:
-            st.session_state.campeon_copa = next((e for e in st.session_state.equipos if e.nombre == camp_nom), None)
-        else:
-            st.session_state.campeon_copa = None
-
-        st.session_state.mercado_pool = [Jugador.from_dict(j) for j in data["mercado_pool"]]
-        st.session_state.subasta_idx = data["subasta_idx"]
-        st.session_state.puja_max = data["puja_max"]
-        st.session_state.subasta_activa = data.get("subasta_activa", False)
-        
-        if data.get("hora_fin_subasta"):
-            st.session_state.hora_fin_subasta = datetime.datetime.fromisoformat(data["hora_fin_subasta"])
-        else:
-            st.session_state.hora_fin_subasta = None
-
-        lider_nom = data["lider_puja_nombre"]
-        if lider_nom:
-            st.session_state.lider_puja_eq = next((e for e in st.session_state.equipos if e.nombre == lider_nom), None)
-        else:
-            st.session_state.lider_puja_eq = None
+        try:
+            with open(ARCHIVO_GUARDADO, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            st.session_state.jornada_actual = data["jornada_actual"]
+            st.session_state.historial_resultados = data["historial_resultados"]
+            st.session_state.historial_copas = data.get("historial_copas", [])
+            st.session_state.historial_mundial = data.get("historial_mundial", [])
+            st.session_state.equipos = [Equipo.from_dict(e) for e in data["equipos"]]
             
-        st.session_state.subasta_actual = st.session_state.mercado_pool[st.session_state.subasta_idx]
-        st.session_state.liga_inicializada = True
-        return True
+            camp_nom = data.get("campeon_copa")
+            if camp_nom:
+                st.session_state.campeon_copa = next((e for e in st.session_state.equipos if e.nombre == camp_nom), None)
+            else:
+                st.session_state.campeon_copa = None
+
+            st.session_state.mercado_pool = [Jugador.from_dict(j) for j in data["mercado_pool"]]
+            st.session_state.subasta_idx = data["subasta_idx"]
+            st.session_state.puja_max = data["puja_max"]
+            st.session_state.subasta_activa = data.get("subasta_activa", False)
+            
+            if data.get("hora_fin_subasta"):
+                st.session_state.hora_fin_subasta = datetime.datetime.fromisoformat(data["hora_fin_subasta"])
+            else:
+                st.session_state.hora_fin_subasta = None
+
+            lider_nom = data["lider_puja_nombre"]
+            if lider_nom:
+                st.session_state.lider_puja_eq = next((e for e in st.session_state.equipos if e.nombre == lider_nom), None)
+            else:
+                st.session_state.lider_puja_eq = None
+                
+            st.session_state.subasta_actual = st.session_state.mercado_pool[st.session_state.subasta_idx]
+            st.session_state.liga_inicializada = True
+            return True
+        except (json.JSONDecodeError, KeyError, Exception):
+            # Si el JSON estaba dañado, eliminamos el archivo corrupto y reiniciamos limpia
+            if os.path.exists(ARCHIVO_GUARDADO):
+                os.remove(ARCHIVO_GUARDADO)
+            return False
     return False
 
 # --- INICIALIZACIÓN ---
