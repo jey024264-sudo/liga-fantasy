@@ -53,7 +53,6 @@ class Equipo:
             titulares = [j for j in self.plantilla if j.nombre in nombres_titulares]
             if len(titulares) == 11:
                 return titulares
-        # Si no hay alineación válida guardada, elige automáticamente los mejores por posición
         mejores = []
         for pos in ["POR", "DEF", "DEF", "DEF", "DEF", "MED", "MED", "MED", "DEL", "DEL", "DEL"]:
             candidatos = [j for j in self.plantilla if j.posicion == pos and j not in mejores]
@@ -72,7 +71,6 @@ class Equipo:
         if not titulares:
             return 60
         media_base = sum(j.grl for j in titulares) // len(titulares)
-        # Penalización si faltan jugadores para completar 11
         if len(titulares) < 11:
             media_base -= (11 - len(titulares)) * 5
         return max(40, media_base)
@@ -328,48 +326,54 @@ elif menu == "📋 Mi Plantilla":
     posiciones_requeridas = TACTICAS[esquema_sel]
     key_titulares = f"titulares_{mi_eq.id_club}"
 
-    # Recuperar selección previa
     titulares_previos = st.session_state.get(key_titulares, [])
     
-    st.subheader("⚽ Selección del 11 Titular (Filtrado por Posición)")
+    st.subheader("⚽ Selección del 11 Titular")
     
-    nuevos_titulares = []
+    # Mapeo para mostrar Posición y GRL junto al nombre en los selectores
+    dict_jugadores = {f"{j.nombre} ({j.posicion} - {j.grl} GRL)": j for j in mi_eq.plantilla}
+    
+    nuevos_titulares_nombres = []
     cols = st.columns(3)
     
     for idx, pos_req in enumerate(posiciones_requeridas):
         col = cols[idx % 3]
         
-        # Filtrar únicamente jugadores de la plantilla que jueguen en esta posición concreta
+        # Candidatos ideales por posición
         candidatos_pos = [j for j in mi_eq.plantilla if j.posicion == pos_req]
         
-        # Opciones disponibles que no hayan sido seleccionadas en puestos anteriores
-        opciones_disponibles = [j.nombre for j in candidatos_pos if j.nombre not in nuevos_titulares]
+        # Filtrar no seleccionados previamente en este renderizado
+        disponibles_objs = [j for j in candidatos_pos if j.nombre not in nuevos_titulares_nombres]
 
-        # Si no hay suficientes jugadores de esa posición especifica, se amplía a la plantilla
-        if not opciones_disponibles:
-            opciones_disponibles = [j.nombre for j in mi_eq.plantilla if j.nombre not in nuevos_titulares]
+        if not disponibles_objs:
+            disponibles_objs = [j for j in mi_eq.plantilla if j.nombre not in nuevos_titulares_nombres]
 
-        # Si toda la plantilla ya fue colocada, mostramos todos los nombres
-        if not opciones_disponibles:
-            opciones_disponibles = [j.nombre for j in mi_eq.plantilla]
+        if not disponibles_objs:
+            disponibles_objs = mi_eq.plantilla
 
-        # Seleccionar valor predeterminado válido
-        predeterminado = opciones_disponibles[0]
-        if idx < len(titulares_previos) and titulares_previos[idx] in opciones_disponibles:
-            predeterminado = titulares_previos[idx]
+        # Convertir a formato de etiqueta visible
+        opciones_etiquetas = [f"{j.nombre} ({j.posicion} - {j.grl} GRL)" for j in disponibles_objs]
 
-        opcion_elegida = col.selectbox(
+        # Encontrar etiqueta predeterminada
+        predeterminada_etiqueta = opciones_etiquetas[0]
+        if idx < len(titulares_previos):
+            nombre_previo = titulares_previos[idx]
+            match_etiqueta = next((etq for etq in opciones_etiquetas if dict_jugadores[etq].nombre == nombre_previo), None)
+            if match_etiqueta:
+                predeterminada_etiqueta = match_etiqueta
+
+        opcion_elegida_etiqueta = col.selectbox(
             f"Puesto {idx+1} ({pos_req}):",
-            options=opciones_disponibles,
-            index=opciones_disponibles.index(predeterminado),
+            options=opciones_etiquetas,
+            index=opciones_etiquetas.index(predeterminada_etiqueta),
             key=f"slot_{mi_eq.id_club}_{idx}"
         )
-        nuevos_titulares.append(opcion_elegida)
+        
+        jugador_seleccionado = dict_jugadores[opcion_elegida_etiqueta]
+        nuevos_titulares_nombres.append(jugador_seleccionado.nombre)
 
-    st.session_state[key_titulares] = nuevos_titulares
+    st.session_state[key_titulares] = nuevos_titulares_nombres
 
-    # Cálculo de métricas
-    objetos_titulares = [j for j in mi_eq.plantilla if j.nombre in nuevos_titulares]
     media_titulares = mi_eq.calcular_media_equipo()
 
     st.markdown("---")
@@ -381,7 +385,7 @@ elif menu == "📋 Mi Plantilla":
     st.subheader("📋 Lista de Jugadores")
     datos_plantilla = [
         {
-            "Rol": "🟢 Titular" if j.nombre in nuevos_titulares else "⚪️ Suplente",
+            "Rol": "🟢 Titular" if j.nombre in nuevos_titulares_nombres else "⚪️ Suplente",
             "Jugador": j.nombre,
             "Posición": j.posicion,
             "Media GRL": j.grl,
@@ -480,10 +484,7 @@ elif menu == "⚡ Pro Admin":
                         media_loc = local.calcular_media_equipo()
                         media_vis = visitante.calcular_media_equipo()
                         
-                        # Cálculo del rendimiento realista basado en datos del 11 titular + factor campo
                         diferencia_grl = (media_loc + 3) - media_vis
-                        
-                        # Asignación de goles según diferencia de calidad real entre 11 titulares
                         esperanza_loc = max(0.5, 1.5 + (diferencia_grl / 10.0))
                         esperanza_vis = max(0.3, 1.1 - (diferencia_grl / 10.0))
                         
