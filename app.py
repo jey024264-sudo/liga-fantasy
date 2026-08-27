@@ -256,104 +256,108 @@ def cargar_partida():
   return False
 
 
-# --- INICIALIZACIÓN ---
+# --- INICIALIZACIÓN (FORZADA DESDE 0 SI SE ELIMINA EL ARCHIVO) ---
 if "liga_inicializada" not in st.session_state:
-  if not cargar_partida():
-    NOMBRES = [
-        "Aarón",
-        "Beto",
-        "Carlos",
-        "Damián",
-        "Enzo",
-        "Franco",
-        "Gael",
-        "Hugo",
-        "Iker",
-        "Javier",
-    ]
-    APELLIDOS = [
-        "Roca",
-        "Soto",
-        "Vidal",
-        "Blanco",
-        "Cruz",
-        "Navarro",
-        "Peña",
-        "Mora",
-        "Rios",
-        "Vega",
-    ]
-    POSICIONES = [
-        "POR",
-        "DEF",
-        "DEF",
-        "DEF",
-        "MED",
-        "MED",
-        "MED",
-        "DEL",
-        "DEL",
-        "DEL",
+  if os.path.exists(ARCHIVO_GUARDADO):
+    os.remove(ARCHIVO_GUARDADO)  # Borra rastro anterior para empezar desde 0
+
+  NOMBRES = [
+      "Aarón",
+      "Beto",
+      "Carlos",
+      "Damián",
+      "Enzo",
+      "Franco",
+      "Gael",
+      "Hugo",
+      "Iker",
+      "Javier",
+  ]
+  APELLIDOS = [
+      "Roca",
+      "Soto",
+      "Vidal",
+      "Blanco",
+      "Cruz",
+      "Navarro",
+      "Peña",
+      "Mora",
+      "Rios",
+      "Vega",
+  ]
+  POSICIONES = [
+      "POR",
+      "DEF",
+      "DEF",
+      "DEF",
+      "MED",
+      "MED",
+      "MED",
+      "DEL",
+      "DEL",
+      "DEL",
+  ]
+
+
+  def generar_plantilla_base():
+    return [
+        Jugador(
+            f"{random.choice(NOMBRES)} {random.choice(APELLIDOS)}",
+            pos,
+            random.randint(60, 75),
+            random.randint(60, 75) * 100_000,
+        )
+        for pos in POSICIONES
     ]
 
-    def generar_plantilla_base():
-      return [
-          Jugador(
-              f"{random.choice(NOMBRES)} {random.choice(APELLIDOS)}",
-              pos,
-              random.randint(60, 75),
-              random.randint(60, 75) * 100_000,
-          )
-          for pos in POSICIONES
-      ]
 
-    clubes_info = [
-        (1, "Hunter x Hunter", "⚡"),
-        (2, "Garra Oscura", "🖤"),
-        (3, "Zaragoza Thunder", "⚡"),
-        (4, "Kaiser FC", "👑"),
-        (5, "JD Spider", "🕷️"),
-        (6, "Z.Z.C FC", "🟡"),
-        (7, "RJ Brasilia", "🇧🇷"),
-        (8, "Talento Bonda", "🔥"),
-        (9, "Legends FC", "🦁"),
-        (10, "Phantom FC", "👻"),
-        (11, "Estrella de la Muerte", "💀"),
-        (12, "AirBending FC", "💨"),
-    ]
+  clubes_info = [
+      (1, "Hunter x Hunter", "⚡"),
+      (2, "Garra Oscura", "🖤"),
+      (3, "Zaragoza Thunder", "⚡"),
+      (4, "Kaiser FC", "👑"),
+      (5, "JD Spider", "🕷️"),
+      (6, "Z.Z.C FC", "🟡"),
+      (7, "RJ Brasilia", "🇧🇷"),
+      (8, "Talento Bonda", "🔥"),
+      (9, "Legends FC", "🦁"),
+      (10, "Phantom FC", "👻"),
+      (11, "Estrella de la Muerte", "💀"),
+      (12, "AirBending FC", "💨"),
+  ]
 
-    clubes = []
-    for id_c, nom, emoji in clubes_info:
-      eq = Equipo(id_c, nom, emoji, pin_predeterminado=id_c)
-      eq.plantilla = generar_plantilla_base()
-      clubes.append(eq)
+  clubes = []
+  for id_c, nom, emoji in clubes_info:
+    eq = Equipo(id_c, nom, emoji, pin_predeterminado=id_c)
+    eq.plantilla = generar_plantilla_base()
+    clubes.append(eq)
 
-    st.session_state.equipos = clubes
-    st.session_state.jornada_actual = 1
-    st.session_state.historial_resultados = []
-    st.session_state.historial_copas = []
-    st.session_state.historial_mundial = []
-    st.session_state.campeon_copa = None
-    st.session_state.mercado_pool = [
-        Jugador("Kylian Mbappé", "DEL", 91, 180_000_000),
-        Jugador("Erling Haaland", "DEL", 91, 180_000_000),
-        Jugador("Jude Bellingham", "MED", 90, 150_000_000),
-        Jugador("Vinícius Jr.", "DEL", 90, 150_000_000),
-        Jugador("Lamine Yamal", "DEL", 88, 120_000_000),
-        Jugador("Pedri", "MED", 86, 80_000_000),
-        Jugador("Federico Valverde", "MED", 88, 100_000_000),
-        Jugador("Thibaut Courtois", "POR", 89, 45_000_000),
-        Jugador("Virgil van Dijk", "DEF", 89, 50_000_000),
-        Jugador("William Saliba", "DEF", 87, 80_000_000),
-    ]
-    st.session_state.subasta_idx = 0
-    st.session_state.subasta_actual = st.session_state.mercado_pool[0]
-    st.session_state.puja_max = st.session_state.mercado_pool[0].valor_base
-    st.session_state.lider_puja_eq = None
-    st.session_state.subasta_activa = False
-    st.session_state.hora_fin_subasta = None
-    st.session_state.liga_inicializada = True
-    guardar_partida()
+  st.session_state.equipos = clubes
+  st.session_state.jornada_actual = 1
+  st.session_state.historial_resultados = []
+  st.session_state.historial_copas = []
+  st.session_state.historial_mundial = []
+  st.session_state.campeon_copa = None
+  st.session_state.mercado_pool = [
+      Jugador("Kylian Mbappé", "DEL", 91, 180_000_000),
+      Jugador("Erling Haaland", "DEL", 91, 180_000_000),
+      Jugador("Jude Bellingham", "MED", 90, 150_000_000),
+      Jugador("Vinícius Jr.", "DEL", 90, 150_000_000),
+      Jugador("Lamine Yamal", "DEL", 88, 120_000_000),
+      Jugador("Pedri", "MED", 86, 80_000_000),
+      Jugador("Federico Valverde", "MED", 88, 100_000_000),
+      Jugador("Thibaut Courtois", "POR", 89, 45_000_000),
+      Jugador("Virgil van Dijk", "DEF", 89, 50_000_000),
+      Jugador("William Saliba", "DEF", 87, 80_000_000),
+  ]
+  st.session_state.subasta_idx = 0
+  st.session_state.subasta_actual = st.session_state.mercado_pool[0]
+  st.session_state.puja_max = st.session_state.mercado_pool[0].valor_base
+  st.session_state.lider_puja_eq = None
+  st.session_state.subasta_activa = False
+  st.session_state.hora_fin_subasta = None
+  st.session_state.liga_inicializada = True
+  guardar_partida()
 
 if "es_admin_autenticado" not in st.session_state:
   st.session_state.es_admin_autenticado = False
@@ -397,7 +401,9 @@ if "mi_equipo" not in st.session_state and not st.session_state.es_solo_admin:
 
   with col_admin:
     st.subheader("Acceso Administrador Supremo")
-    pwd = st.text_input("Clave de Administrador:", type="password", key="pwd_admin_main")
+    pwd = st.text_input(
+        "Clave de Administrador:", type="password", key="pwd_admin_main"
+    )
     if st.button("Entrar como Administrador"):
       if pwd == CLAVE_ADMIN:
         st.session_state.es_solo_admin = True
@@ -548,11 +554,9 @@ elif menu == "📋 Mi Plantilla":
 
   posiciones_requeridas = TACTICAS[esquema_sel]
   key_titulares = f"titulares_{mi_eq.id_club}"
-
   titulares_previos = st.session_state.get(key_titulares, [])
 
   st.subheader("⚽ Selección del 11 Titular")
-
   dict_jugadores = {
       f"{j.nombre} ({j.posicion} - {j.grl} GRL)": j for j in mi_eq.plantilla
   }
@@ -562,7 +566,6 @@ elif menu == "📋 Mi Plantilla":
 
   for idx, pos_req in enumerate(posiciones_requeridas):
     col = cols[idx % 3]
-
     candidatos_pos = [j for j in mi_eq.plantilla if j.posicion == pos_req]
     disponibles_objs = [
         j for j in candidatos_pos if j.nombre not in nuevos_titulares_nombres
@@ -572,7 +575,6 @@ elif menu == "📋 Mi Plantilla":
       disponibles_objs = [
           j for j in mi_eq.plantilla if j.nombre not in nuevos_titulares_nombres
       ]
-
     if not disponibles_objs:
       disponibles_objs = mi_eq.plantilla
 
@@ -605,7 +607,6 @@ elif menu == "📋 Mi Plantilla":
     nuevos_titulares_nombres.append(jugador_seleccionado.nombre)
 
   st.session_state[key_titulares] = nuevos_titulares_nombres
-
   media_titulares = mi_eq.calcular_media_equipo()
 
   st.markdown("---")
@@ -741,7 +742,9 @@ elif menu == "⚡ Pro Admin":
   st.header("⚡ Panel de Control Pro Admin")
 
   if not st.session_state.es_admin_autenticado:
-    pwd = st.text_input("Clave de Administrador:", type="password", key="pwd_admin_panel")
+    pwd = st.text_input(
+        "Clave de Administrador:", type="password", key="pwd_admin_panel"
+    )
     if st.button("Autenticar"):
       if pwd == CLAVE_ADMIN:
         st.session_state.es_admin_autenticado = True
@@ -750,6 +753,41 @@ elif menu == "⚡ Pro Admin":
       else:
         st.error("Clave incorrecta.")
   else:
+    # --- BOTÓN DIRECTO DE NUEVA TEMPORADA MUY VISIBLE ---
+    st.info(
+        "💡 Gestiona los torneos, simula jornadas o avanza de temporada"
+        " rápidamente."
+    )
+    col_temp_btn1, col_temp_btn2 = st.columns([2, 1])
+    with col_temp_btn1:
+      st.warning(
+          "⚠️ ¿Terminó la temporada actual y quieres arrancar la siguiente"
+          " con nuevos resultados?"
+      )
+    with col_temp_btn2:
+      if st.button("🌟 Iniciar Siguiente Temporada", type="primary"):
+        st.session_state.jornada_actual = 1
+        st.session_state.historial_resultados = []
+        st.session_state.historial_copas = []
+        st.session_state.historial_mundial = []
+        st.session_state.campeon_copa = None
+        for eq in st.session_state.equipos:
+          eq.puntos = 0
+          eq.pj = 0
+          eq.pg = 0
+          eq.pe = 0
+          eq.pp = 0
+          eq.gf = 0
+          eq.gc = 0
+        guardar_partida()
+        st.success(
+            "¡Se ha iniciado una nueva temporada con éxito! Plantillas y"
+            " presupuestos intactos."
+        )
+        st.rerun()
+
+    st.markdown("---")
+
     tab1, tab2, tab3, tab4 = st.tabs([
         "⚽ Partidos & Mercado",
         "🏆 Torneos Post-Liga",
@@ -1038,38 +1076,17 @@ elif menu == "⚡ Pro Admin":
             " un Campeón en la Copa de España."
         )
 
-      # --- NUEVO BOTÓN: INICIAR SIGUIENTE TEMPORADA ---
-      st.markdown("---")
-      st.subheader("🔄 Gestión de Temporada")
-      if st.button("🌟 Iniciar Siguiente Temporada"):
-        st.session_state.jornada_actual = 1
-        st.session_state.historial_resultados = []
-        st.session_state.historial_copas = []
-        st.session_state.historial_mundial = []
-        st.session_state.campeon_copa = None
-        for eq in st.session_state.equipos:
-          eq.puntos = 0
-          eq.pj = 0
-          eq.pg = 0
-          eq.pe = 0
-          eq.pp = 0
-          eq.gf = 0
-          eq.gc = 0
-        guardar_partida()
-        st.success(
-            "¡Se ha iniciado una nueva temporada! Puntos, clasificación y"
-            " copas reseteados. ¡Las plantillas y presupuestos se mantienen!"
-        )
-        st.rerun()
-
     with tab3:
       st.subheader("💵 Inyección o Descuento de Presupuesto")
       eq_destino = st.selectbox(
-          "Selecciona el equipo:", [e.nombre for e in st.session_state.equipos]
+          "Selecciona el equipo:",
+          [e.nombre for e in st.session_state.equipos],
+          key="sel_eq_presupuesto",
       )
       monto_cambio = st.number_input(
           "Monto en € (positivo para dar, negativo para quitar):",
           step=5_000_000,
+          key="input_monto_presupuesto",
       )
 
       if st.button("Aplicar Transacción"):
@@ -1104,14 +1121,21 @@ elif menu == "⚡ Pro Admin":
           e for e in st.session_state.equipos if e.nombre == eq_edit
       )
 
-      nuevos_pts = st.number_input("Puntos:", value=equipo_obj.puntos, min_value=0)
+      nuevos_pts = st.number_input(
+          "Puntos:", value=equipo_obj.puntos, min_value=0, key="input_pts"
+      )
       nuevos_gf = st.number_input(
-          "Goles a Favor (GF):", value=equipo_obj.gf, min_value=0
+          "Goles a Favor (GF):", value=equipo_obj.gf, min_value=0, key="input_gf"
       )
       nuevos_gc = st.number_input(
-          "Goles en Contra (GC):", value=equipo_obj.gc, min_value=0
+          "Goles en Contra (GC):",
+          value=equipo_obj.gc,
+          min_value=0,
+          key="input_gc",
       )
-      nuevo_pin = st.text_input("PIN de Acceso:", value=str(equipo_obj.password))
+      nuevo_pin = st.text_input(
+          "PIN de Acceso:", value=str(equipo_obj.password), key="input_pin_edit"
+      )
 
       if st.button("Guardar Cambios del Equipo"):
         equipo_obj.puntos = nuevos_pts
