@@ -3,16 +3,17 @@ import json
 import os
 import random
 import streamlit as st
+import streamlit.components.v1 as components
 
 # ============================================================
-# LIGA MANAGER FANTASY — BETA 3.5 OPTIMIZADA
+# LIGA MANAGER FANTASY — BETA 3.5 · REALTIME
 # ============================================================
 # 12 clubes | 11 jornadas | Copa de España | Mundial de Clubes
 # IA autónoma | Mercado | Subastas | Finanzas | Historial
 # ============================================================
 
 st.set_page_config(
-    page_title="Liga Manager Fantasy Beta 3.5 Optimizada",
+    page_title="Liga Fantasa · 3.5",
     page_icon="⚽",
     layout="wide",
 )
@@ -34,7 +35,7 @@ TOTAL_JORNADAS = 11
 INTERVALO_JORNADA_MIN = 4
 ESPERA_POST_LIGA_MIN = 10
 ESPERA_POST_COPA_MIN = 10
-INTERVALO_UI_SEG = 15
+INTERVALO_UI_SEG = 1
 MERCADO_CENTRAL_CANTIDAD = 5
 ARCHIVO_LOCK_AUTO = "liga_manager_auto35.lock"
 
@@ -48,6 +49,50 @@ PREMIOS_LIGA = {
 PREMIO_LIGA_RESTO = 1_000_000
 PREMIO_COPA = 40_000_000
 PREMIO_MUNDIAL = 70_000_000
+
+
+# ============================================================
+# RELOJ REAL: Streamlit vuelve a ejecutar SOLO este bloque cada segundo.
+# Esto evita el problema de un iframe HTML/JS que puede quedar congelado.
+# ============================================================
+try:
+    _fragment_clock = st.fragment
+except AttributeError:
+    _fragment_clock = None
+
+if _fragment_clock is not None:
+    @_fragment_clock(run_every="1s")
+    def mostrar_temporizador_tiempo_real(fecha_objetivo, etiqueta="Tiempo restante"):
+        """Cuenta regresiva sincronizada con la hora del servidor, segundo a segundo."""
+        if fecha_objetivo is None:
+            st.metric(etiqueta, "--:--")
+            return
+        if isinstance(fecha_objetivo, str):
+            try:
+                fecha_objetivo = datetime.datetime.fromisoformat(fecha_objetivo)
+            except Exception:
+                st.metric(etiqueta, "--:--")
+                return
+        restantes = max(0, int((fecha_objetivo - datetime.datetime.now()).total_seconds()))
+        h, rem = divmod(restantes, 3600)
+        m, sec = divmod(rem, 60)
+        reloj = f"{h:02d}:{m:02d}:{sec:02d}" if h else f"{m:02d}:{sec:02d}"
+        st.metric(etiqueta, reloj)
+else:
+    def mostrar_temporizador_tiempo_real(fecha_objetivo, etiqueta="Tiempo restante"):
+        """Compatibilidad con versiones antiguas de Streamlit."""
+        if fecha_objetivo is None:
+            st.metric(etiqueta, "--:--")
+            return
+        if isinstance(fecha_objetivo, str):
+            try:
+                fecha_objetivo = datetime.datetime.fromisoformat(fecha_objetivo)
+            except Exception:
+                st.metric(etiqueta, "--:--")
+                return
+        restantes = max(0, int((fecha_objetivo - datetime.datetime.now()).total_seconds()))
+        m, sec = divmod(restantes, 60)
+        st.metric(etiqueta, f"{m:02d}:{sec:02d}")
 
 
 # ============================================================
@@ -1075,7 +1120,7 @@ def iniciar_nueva_temporada():
 
 
 # ============================================================
-# AUTOMATIZACIÓN BETA 3.5 OPTIMIZADA
+# AUTOMATIZACIÓN BETA 3.5 · REALTIME
 # ============================================================
 
 def asegurar_config_automatizacion():
@@ -1522,7 +1567,7 @@ def inicializar_nueva_partida():
 # ============================================================
 
 # ============================================================
-# AUTOCORRECCIÓN / MIGRACIÓN BETA 3.5 OPTIMIZADA
+# AUTOCORRECCIÓN / MIGRACIÓN BETA 3.5 · REALTIME
 # ============================================================
 def reparar_estado_beta35():
     """Normaliza partidas de Beta 3.5 Optimizada para evitar AttributeError por estados antiguos."""
@@ -1632,7 +1677,25 @@ if "es_solo_admin" not in st.session_state:
 if "mostrar_admin_login" not in st.session_state:
     st.session_state.mostrar_admin_login = False
 
+if "plataforma_usuario" not in st.session_state:
+    st.session_state.plataforma_usuario = None
+
 if "mi_equipo" not in st.session_state and not st.session_state.es_solo_admin:
+    st.markdown("<div class='hero-card'><h1 style='margin:0'>⚽ LIGA FANTASA</h1><p style='margin:.35rem 0 0;opacity:.72'>Fantasy football · Liga · Mercado · Subastas · Torneos</p></div>", unsafe_allow_html=True)
+    if st.session_state.plataforma_usuario is None:
+        st.subheader("Elige tu plataforma")
+        pc1, pc2 = st.columns(2)
+        with pc1:
+            if st.button("🖥️ PC / ORDENADOR", use_container_width=True, type="primary"):
+                st.session_state.plataforma_usuario = "pc"
+                st.rerun()
+        with pc2:
+            if st.button("📱 MÓVIL / TABLET", use_container_width=True):
+                st.session_state.plataforma_usuario = "mobile"
+                st.rerun()
+        st.caption("La interfaz también usa diseño responsive para adaptarse automáticamente al tamaño de pantalla.")
+        st.stop()
+
     st.title("🎮 Liga Manager Fantasy — Beta 3.5 Optimizada")
     st.caption("12 clubes · IA · Copa de España · Mundial de Clubes")
 
@@ -1718,6 +1781,7 @@ if st.session_state.es_solo_admin:
     st.sidebar.write(f"Temporada: **{st.session_state.get('temporada', 1)}**")
 else:
     mi_eq = st.session_state.mi_equipo
+    st.sidebar.caption("📱 Interfaz adaptativa · " + ("PC" if st.session_state.get("plataforma_usuario") == "pc" else "Móvil / Tablet"))
     st.sidebar.title(f"👤 {mi_eq.presidente}")
     st.sidebar.write(
         f"Temporada {st.session_state.get('temporada', 1)} · Club Nº {mi_eq.id_club}: **{mi_eq.emoji} {mi_eq.nombre}**"
@@ -1766,7 +1830,7 @@ menu = st.sidebar.radio("Navegación", opciones_menu)
 # ============================================================
 
 if menu == "🏠 Inicio":
-    st.title("⚽ Liga Manager Fantasy — BETA 3.5 OPTIMIZADA")
+    st.title("⚽ Liga Manager Fantasy — BETA 3.5 · REALTIME")
     st.subheader("Tu carrera de manager empieza aquí.")
 
     # Centro de próximos eventos: visible para todos, controlado por Admin.
@@ -1775,10 +1839,11 @@ if menu == "🏠 Inicio":
     with cnext1:
         st.info(f"**{texto_proximo_evento()}**")
     with cnext2:
-        seg = segundos_hasta_proximo_evento()
-        if seg is not None:
-            mm, ss = divmod(seg, 60)
-            st.metric("⏱️ Temporizador", f"{mm:02d}:{ss:02d}")
+        if st.session_state.get("automatizacion_activa", False):
+            mostrar_temporizador_tiempo_real(
+                st.session_state.get("auto_proximo_evento"),
+                "⏱️ Temporizador"
+            )
         else:
             st.metric("⏱️ Temporizador", "MANUAL")
 
@@ -1989,9 +2054,7 @@ elif menu == "🌍 Mercado Central":
     if ventana:
         try:
             siguiente = datetime.datetime.fromisoformat(ventana) + datetime.timedelta(hours=1)
-            seg=max(0,int((siguiente-datetime.datetime.now()).total_seconds()))
-            mm,ss=divmod(seg,60)
-            st.metric("⏱️ Próxima rotación",f"{mm:02d}:{ss:02d}")
+            mostrar_temporizador_tiempo_real(siguiente, "PRÓXIMA ROTACIÓN DEL MERCADO")
         except Exception:
             pass
     if st.session_state.es_solo_admin:
@@ -2027,10 +2090,7 @@ elif menu == "🔥 Subastas":
         st.success("🎉 No quedan jugadores en el mercado de subastas.")
     else:
         if fin:
-            restantes = max(0, int((fin - datetime.datetime.now()).total_seconds()))
-            horas, rem = divmod(restantes, 3600)
-            minutos, segundos = divmod(rem, 60)
-            st.metric("⏳ Tiempo restante", f"{horas:02d}:{minutos:02d}:{segundos:02d}")
+            mostrar_temporizador_tiempo_real(fin, "SUBASTA · TIEMPO RESTANTE")
 
         st.subheader(f"{jugador.nombre} · {jugador.posicion} · ⭐ {jugador.grl}")
         c1,c2,c3=st.columns(3)
@@ -2900,9 +2960,9 @@ elif menu == "⚡ Pro Admin":
 
 
 # ============================================================
-# REFRESCO AUTOMÁTICO DE INTERFAZ BETA 3.5 OPTIMIZADA
+# REFRESCO AUTOMÁTICO DE INTERFAZ BETA 3.5 · REALTIME
 # ============================================================
-# Streamlit reciente permite refrescar solo este fragmento cada 15 s.
+# El motor y los relojes dinámicos se actualizan con fragmentos de Streamlit cada segundo.
 # Si una instalación antigua no tiene st.fragment, la app sigue funcionando
 # de forma manual sin romperse.
 try:
@@ -2911,7 +2971,7 @@ except AttributeError:
     _fragment = None
 
 if _fragment is not None:
-    @_fragment(run_every=f"{INTERVALO_UI_SEG}s")
+    @_fragment(run_every="1s")
     def _motor_reloj_35():
         asegurar_config_automatizacion()
         subasta_antes = (st.session_state.get("subasta_idx", 0), st.session_state.get("subasta_activa", False))
