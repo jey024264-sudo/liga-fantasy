@@ -6,14 +6,14 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 # ============================================================
-# LIGA MANAGER FANTASY — BETA 3.5 · REALTIME
+# GOOD LEVEL · BETA 3.5 REALTIME
 # ============================================================
 # 12 clubes | 11 jornadas | Copa de España | Mundial de Clubes
 # IA autónoma | Mercado | Subastas | Finanzas | Historial
 # ============================================================
 
 st.set_page_config(
-    page_title="Liga Fantasa · 3.5",
+    page_title="GOOD LEVEL · 3.5",
     page_icon="⚽",
     layout="wide",
 )
@@ -1681,7 +1681,7 @@ if "plataforma_usuario" not in st.session_state:
     st.session_state.plataforma_usuario = None
 
 if "mi_equipo" not in st.session_state and not st.session_state.es_solo_admin:
-    st.markdown("<div class='hero-card'><h1 style='margin:0'>⚽ LIGA FANTASA</h1><p style='margin:.35rem 0 0;opacity:.72'>Fantasy football · Liga · Mercado · Subastas · Torneos</p></div>", unsafe_allow_html=True)
+    st.markdown("<div class='hero-card'><h1 style='margin:0'>⚽ GOOD LEVEL</h1><p style='margin:.35rem 0 0;opacity:.72'>Fantasy football · Liga · Mercado · Subastas · Torneos</p></div>", unsafe_allow_html=True)
     if st.session_state.plataforma_usuario is None:
         st.subheader("Elige tu plataforma")
         pc1, pc2 = st.columns(2)
@@ -1696,7 +1696,7 @@ if "mi_equipo" not in st.session_state and not st.session_state.es_solo_admin:
         st.caption("La interfaz también usa diseño responsive para adaptarse automáticamente al tamaño de pantalla.")
         st.stop()
 
-    st.title("🎮 Liga Manager Fantasy — Beta 3.5 Optimizada")
+    st.title("🎮 GOOD LEVEL · Beta 3.5")
     st.caption("12 clubes · IA · Copa de España · Mundial de Clubes")
 
     col_jugador, col_admin = st.columns(2)
@@ -1830,7 +1830,7 @@ menu = st.sidebar.radio("Navegación", opciones_menu)
 # ============================================================
 
 if menu == "🏠 Inicio":
-    st.title("⚽ Liga Manager Fantasy — BETA 3.5 · REALTIME")
+    st.title("⚽ GOOD LEVEL · BETA 3.5 REALTIME")
     st.subheader("Tu carrera de manager empieza aquí.")
 
     # Centro de próximos eventos: visible para todos, controlado por Admin.
@@ -2565,9 +2565,7 @@ elif menu == "⚡ Pro Admin":
                     st.rerun()
         with ac3:
             st.write(f"**{texto_proximo_evento()}**")
-            seg = segundos_hasta_proximo_evento()
-            if seg is not None:
-                st.caption(f"Faltan {seg//60:02d}:{seg%60:02d}")
+            st.caption("⏱️ El contador en tiempo real aparece fijo en pantalla mientras el motor está activo.")
 
         st.markdown("---")
         st.subheader("🎁 Regalar dinero")
@@ -2980,13 +2978,45 @@ if _fragment is not None:
         cambio = ejecutar_evento_automatico_35()
         if cambio or subasta_antes != subasta_despues:
             st.rerun()
-        if st.session_state.get("automatizacion_activa", False):
-            st.caption(f"🔄 Motor automático activo · {texto_proximo_evento()}")
+
     _motor_reloj_35()
+
+# ============================================================
+# BARRA GLOBAL FIJA · GOOD LEVEL · TIEMPO REAL
+# ============================================================
+try:
+    _global_fragment = st.fragment
+except AttributeError:
+    _global_fragment = None
+
+if _global_fragment is not None:
+    @_global_fragment(run_every="1s")
+    def _barra_global_tiempo_real():
+        asegurar_config_automatizacion()
+        activo = bool(st.session_state.get("automatizacion_activa", False))
+        proximo = texto_proximo_evento()
+        seg = segundos_hasta_proximo_evento() if activo else None
+        if seg is None:
+            reloj = "MANUAL"
+        else:
+            seg = max(0, int(seg))
+            h, rem = divmod(seg, 3600)
+            m, s = divmod(rem, 60)
+            reloj = f"{h:02d}:{m:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}"
+        estado = "🟢 MOTOR ACTIVO" if activo else "⚪ MOTOR MANUAL"
+        st.markdown(
+            f'''<div style="position:fixed;left:0;right:0;bottom:0;z-index:999999;background:rgba(10,12,18,.96);border-top:1px solid rgba(255,255,255,.14);padding:9px 18px;box-shadow:0 -8px 24px rgba(0,0,0,.28);font-family:Arial,sans-serif;backdrop-filter:blur(10px);">
+            <div style="max-width:1200px;margin:auto;display:flex;align-items:center;justify-content:center;gap:18px;flex-wrap:wrap;color:#f5f5f5;font-size:14px;">
+            <span><b>GOOD LEVEL</b></span><span>{estado}</span><span><b>Próximo:</b> {proximo}</span><span><b>⏱️ {reloj}</b></span>
+            </div></div>''',
+            unsafe_allow_html=True,
+        )
+    _barra_global_tiempo_real()
 
 # ============================================================
 # GUARDADO AUTOMÁTICO
 # ============================================================
+st.markdown("<div style=\"height:64px\"></div>", unsafe_allow_html=True)
 
 try:
     reparar_estado_beta35()
