@@ -5,28 +5,37 @@ import random
 import streamlit as st
 
 # ============================================================
-# LIGA MANAGER FANTASY — BETA 3.5
+# LIGA MANAGER FANTASY — BETA 3.5 OPTIMIZADA
 # ============================================================
 # 12 clubes | 11 jornadas | Copa de España | Mundial de Clubes
 # IA autónoma | Mercado | Subastas | Finanzas | Historial
 # ============================================================
 
 st.set_page_config(
-    page_title="Liga Manager Fantasy Beta 3.5",
+    page_title="Liga Manager Fantasy Beta 3.5 Optimizada",
     page_icon="⚽",
     layout="wide",
 )
+
+st.markdown("""<style>
+.block-container{max-width:1180px;padding-top:1.2rem;padding-bottom:3rem}
+section[data-testid="stSidebar"]{border-right:1px solid rgba(128,128,128,.16)}
+[data-testid="stMetric"]{border:1px solid rgba(128,128,128,.16);border-radius:14px;padding:10px}
+div.stButton>button{border-radius:10px;font-weight:600}
+.hero-card{padding:24px;border:1px solid rgba(128,128,128,.16);border-radius:18px;margin-bottom:18px}
+</style>""",unsafe_allow_html=True)
 
 PRESUPUESTO_INICIAL = 200_000_000
 CLAVE_ADMIN = "1234"
 ARCHIVO_GUARDADO = "liga_estado_beta35.json"
 TOTAL_JORNADAS = 11
 
-# Automatización Beta 3.5
+# Automatización Beta 3.5 Optimizada
 INTERVALO_JORNADA_MIN = 4
 ESPERA_POST_LIGA_MIN = 10
 ESPERA_POST_COPA_MIN = 10
 INTERVALO_UI_SEG = 15
+MERCADO_CENTRAL_CANTIDAD = 5
 ARCHIVO_LOCK_AUTO = "liga_manager_auto35.lock"
 
 # Premios oficiales
@@ -783,6 +792,57 @@ def ejecutar_ia():
 # SUBASTA
 # ============================================================
 
+def jugadores_mercado_central():
+    """Mercado común: rota 5 jugadores cada hora."""
+    base = [
+        ("A. Okafor","DEL",84,72_000_000),("M. Toure","MED",82,58_000_000),
+        ("L. Petrovic","DEF",81,46_000_000),("D. Nakamura","MED",85,78_000_000),
+        ("J. Mensah","DEF",83,61_000_000),("S. Duarte","DEL",86,92_000_000),
+        ("R. Kowalski","POR",82,52_000_000),("K. Diallo","DEL",87,105_000_000),
+        ("E. Rossi","MED",80,41_000_000),("N. Silva","DEF",84,69_000_000),
+        ("Y. Chen","MED",83,64_000_000),("T. Ibrahim","DEL",85,88_000_000),
+        ("P. Costa","DEF",79,35_000_000),("H. Sato","POR",84,63_000_000),
+        ("B. Adeyemi","DEL",86,96_000_000),
+    ]
+    ventana = datetime.datetime.now().replace(minute=0, second=0, microsecond=0)
+    clave = ventana.isoformat()
+    if st.session_state.get("mercado_central_ventana") != clave or not st.session_state.get("mercado_central"):
+        rng = random.Random(int(ventana.timestamp()) // 3600)
+        candidatos = base[:]
+        rng.shuffle(candidatos)
+        st.session_state.mercado_central = [Jugador(*x) for x in candidatos[:MERCADO_CENTRAL_CANTIDAD]]
+        st.session_state.mercado_central_ventana = clave
+    return st.session_state.mercado_central
+
+
+def comprar_mercado_central(eq, jugador):
+    disponibles = st.session_state.get("mercado_central", [])
+    actual = next((j for j in disponibles if j.nombre == jugador.nombre), None)
+    if actual is None:
+        return False, "Este jugador ya no está disponible."
+    if eq.presupuesto < actual.valor_base:
+        return False, "No tienes presupuesto suficiente."
+    eq.registrar_gasto(actual.valor_base, f"Mercado central: {actual.nombre}")
+    eq.plantilla.append(actual)
+    st.session_state.mercado_central = [j for j in disponibles if j.nombre != actual.nombre]
+    registrar_evento(f"🌍 {eq.nombre} fichó a {actual.nombre} desde el Mercado Central.")
+    autosave_partida()
+    return True, f"{actual.nombre} se une a {eq.nombre}."
+
+
+def jugadores_subasta_leyendas():
+    return [
+        Jugador("Arjen Robben Prime","DEL",95,210_000_000),
+        Jugador("Ronaldinho Prime","MED",96,240_000_000),
+        Jugador("Zinedine Zidane Prime","MED",97,260_000_000),
+        Jugador("Thierry Henry Prime","DEL",96,250_000_000),
+        Jugador("Andrea Pirlo Prime","MED",94,190_000_000),
+        Jugador("Carles Puyol Prime","DEF",93,165_000_000),
+        Jugador("Iker Casillas Prime","POR",94,150_000_000),
+        Jugador("Ronaldo Nazario Prime","DEL",98,300_000_000),
+    ]
+
+
 def iniciar_siguiente_subasta():
     pool = st.session_state.get("mercado_pool", [])
     if not pool:
@@ -1015,7 +1075,7 @@ def iniciar_nueva_temporada():
 
 
 # ============================================================
-# AUTOMATIZACIÓN BETA 3.5
+# AUTOMATIZACIÓN BETA 3.5 OPTIMIZADA
 # ============================================================
 
 def asegurar_config_automatizacion():
@@ -1238,6 +1298,8 @@ def autosave_partida():
         "mercado_pool": [
             j.to_dict() for j in st.session_state.get("mercado_pool", [])
         ],
+        "mercado_central": [j.to_dict() for j in st.session_state.get("mercado_central", [])],
+        "mercado_central_ventana": st.session_state.get("mercado_central_ventana"),
         "ventas_lava_hora": st.session_state.get("ventas_lava_hora", {}),
         "ventana_ventas_lava": (
             st.session_state.ventana_ventas_lava.isoformat()
@@ -1313,6 +1375,9 @@ def cargar_partida():
         st.session_state.mercado_pool = [
             Jugador.from_dict(j) for j in pool
         ]
+
+        st.session_state.mercado_central = [Jugador.from_dict(j) for j in data.get("mercado_central", [])]
+        st.session_state.mercado_central_ventana = data.get("mercado_central_ventana")
 
         st.session_state.subasta_idx = int(data.get("subasta_idx", 0))
 
@@ -1437,7 +1502,14 @@ def inicializar_nueva_partida():
     st.session_state.lider_puja_eq = None
     st.session_state.subasta_activa = False
     st.session_state.hora_fin_subasta = datetime.datetime.now() + datetime.timedelta(hours=1)
+    st.session_state.mercado_pool = jugadores_subasta_leyendas()
+    st.session_state.subasta_idx = 0
+    st.session_state.subasta_actual = st.session_state.mercado_pool[0]
+    st.session_state.puja_max = st.session_state.subasta_actual.valor_base
+    st.session_state.lider_puja_eq = None
     st.session_state.subasta_activa = True
+    st.session_state.mercado_central = []
+    st.session_state.mercado_central_ventana = None
     st.session_state.ventas_lava_hora = {}
     st.session_state.ventana_ventas_lava = datetime.datetime.now().replace(minute=0, second=0, microsecond=0)
     st.session_state.historial_mercado_negro = []
@@ -1450,10 +1522,10 @@ def inicializar_nueva_partida():
 # ============================================================
 
 # ============================================================
-# AUTOCORRECCIÓN / MIGRACIÓN BETA 3.5
+# AUTOCORRECCIÓN / MIGRACIÓN BETA 3.5 OPTIMIZADA
 # ============================================================
 def reparar_estado_beta35():
-    """Normaliza partidas de Beta 3.5 para evitar AttributeError por estados antiguos."""
+    """Normaliza partidas de Beta 3.5 Optimizada para evitar AttributeError por estados antiguos."""
     defaults = {
         "copa": None,
         "mundial": None,
@@ -1472,6 +1544,8 @@ def reparar_estado_beta35():
         "mundial_final_jugada": False,
         "ofertas_fichaje": [],
         "mercado_pool": [],
+        "mercado_central": [],
+        "mercado_central_ventana": None,
         "subasta_idx": 0,
         "puja_max": 0,
         "lider_puja_eq": None,
@@ -1538,6 +1612,10 @@ if "liga_inicializada" not in st.session_state:
 reparar_estado_beta35()
 procesar_reloj_subasta()
 reiniciar_limite_lava_si_corresponde()
+try:
+    jugadores_mercado_central()
+except Exception:
+    pass
 asegurar_config_automatizacion()
 ejecutar_evento_automatico_35()
 
@@ -1555,7 +1633,7 @@ if "mostrar_admin_login" not in st.session_state:
     st.session_state.mostrar_admin_login = False
 
 if "mi_equipo" not in st.session_state and not st.session_state.es_solo_admin:
-    st.title("🎮 Liga Manager Fantasy — Beta 3.5")
+    st.title("🎮 Liga Manager Fantasy — Beta 3.5 Optimizada")
     st.caption("12 clubes · IA · Copa de España · Mundial de Clubes")
 
     col_jugador, col_admin = st.columns(2)
@@ -1665,6 +1743,7 @@ opciones_menu = [
     "🏠 Inicio",
     "📊 Clasificación",
     "📋 Mi Plantilla",
+    "🌍 Mercado Central",
     "🔥 Subastas",
     "🌋 Mercado Negro",
     "🤝 Mercado & Cláusulas",
@@ -1687,7 +1766,7 @@ menu = st.sidebar.radio("Navegación", opciones_menu)
 # ============================================================
 
 if menu == "🏠 Inicio":
-    st.title("⚽ Liga Manager Fantasy — BETA 3.5")
+    st.title("⚽ Liga Manager Fantasy — BETA 3.5 OPTIMIZADA")
     st.subheader("Tu carrera de manager empieza aquí.")
 
     # Centro de próximos eventos: visible para todos, controlado por Admin.
@@ -1899,12 +1978,47 @@ elif menu == "📋 Mi Plantilla":
 
 
 # ============================================================
+# MERCADO CENTRAL
+# ============================================================
+
+elif menu == "🌍 Mercado Central":
+    st.header("🌍 Mercado Central")
+    st.caption("Mercado global compartido · 5 jugadores nuevos al comenzar cada hora.")
+    jugadores = jugadores_mercado_central()
+    ventana = st.session_state.get("mercado_central_ventana")
+    if ventana:
+        try:
+            siguiente = datetime.datetime.fromisoformat(ventana) + datetime.timedelta(hours=1)
+            seg=max(0,int((siguiente-datetime.datetime.now()).total_seconds()))
+            mm,ss=divmod(seg,60)
+            st.metric("⏱️ Próxima rotación",f"{mm:02d}:{ss:02d}")
+        except Exception:
+            pass
+    if st.session_state.es_solo_admin:
+        st.info("👑 El mercado es compartido por todos los clubes.")
+    else:
+        eq=st.session_state.mi_equipo
+        for j in jugadores:
+            a,b,c,d=st.columns([3,1,1,1])
+            a.write(f"**{j.nombre}** · {j.posicion} · ⭐ {j.grl}")
+            b.write(f"Valor: {dinero(j.valor_base)}")
+            c.write(f"Salario: {dinero(j.salario)}")
+            if d.button("Fichar",key=f"mc_{j.nombre}"):
+                ok,msg=comprar_mercado_central(eq,j)
+                if ok:
+                    st.success(msg); st.rerun()
+                else:
+                    st.error(msg)
+            st.divider()
+
+
+# ============================================================
 # SUBASTAS
 # ============================================================
 
 elif menu == "🔥 Subastas":
-    st.header("🔥 Subastas — 1 jugador por hora")
-    st.caption("⏱️ El árbitro IA cierra automáticamente cada subasta al terminar la hora.")
+    st.header("🔥 Subastas · Leyendas")
+    st.caption("⏱️ Una leyenda premium por hora · cierre automático por el árbitro IA.")
 
     jugador = st.session_state.get("subasta_actual")
     fin = st.session_state.get("hora_fin_subasta")
@@ -2356,7 +2470,7 @@ elif menu == "📰 Noticias":
 # ============================================================
 
 elif menu == "⚡ Pro Admin":
-    st.header("⚡ Panel Pro Admin — Beta 3.5")
+    st.header("⚡ Panel Pro Admin — Beta 3.5 Optimizada")
     st.caption("👑 Centro de control: humanos, bots, liga, torneos, finanzas y seguridad.")
 
     if not st.session_state.es_admin_autenticado:
@@ -2786,7 +2900,7 @@ elif menu == "⚡ Pro Admin":
 
 
 # ============================================================
-# REFRESCO AUTOMÁTICO DE INTERFAZ BETA 3.5
+# REFRESCO AUTOMÁTICO DE INTERFAZ BETA 3.5 OPTIMIZADA
 # ============================================================
 # Streamlit reciente permite refrescar solo este fragmento cada 15 s.
 # Si una instalación antigua no tiene st.fragment, la app sigue funcionando
